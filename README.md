@@ -73,6 +73,8 @@ La clasificación automática es orientativa y no sustituye evaluación profesio
 ## Archivos principales
 
 - `app.py`: interfaz Streamlit, perfiles demo, fichas, pestañas y flujos de trabajo.
+- `assets/mindeline_logo.png`: archivo original del logotipo de MindeLine.
+- `assets/mindeline_logo_transparent.png`: versión de alto contraste usada en la interfaz.
 - `db.py`: almacenamiento temporal de alertas en memoria; pese al nombre del archivo, no conecta a una base de datos.
 - `backend_ai.py`: envío de texto/audio a Groq para generar transcripción y clasificación orientativa.
 - `requirements.txt`: dependencias de Python.
