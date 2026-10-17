@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 from urllib.parse import quote_plus
+import unicodedata
 from db import init_db, guardar_alerta, obtener_alertas, actualizar_estado_alerta
 from backend_ai import procesar_audio_o_texto
 
@@ -192,7 +193,7 @@ TRANSLATIONS = {
         "Código": "Code",
         "Nombre": "Name",
         "Casos": "Cases",
-        "⛵ MindeLine: Ficha Clínica & Triaje Digital": "⛵ MindeLine: Clinical Record & Digital Triage",
+        "MindeLine: Ficha Clínica & Triaje Digital": "MindeLine: Clinical Record & Digital Triage",
         "Urgencia": "Urgency",
         "Group": "Group",
         "Category": "Category",
@@ -247,7 +248,7 @@ def tr(text, **values):
     return translated.format(**values) if values else translated
 
 
-st.set_page_config(page_title="MindeLine", layout="wide", page_icon="⛵")
+st.set_page_config(page_title="MindeLine", layout="wide", page_icon=str(LOGO_PATH))
 if "language" not in st.session_state:
     st.session_state.language = "Español"
 CURRENT_LANGUAGE = st.sidebar.selectbox(
@@ -399,7 +400,7 @@ CIE10_DATA = [
 
 VIDEO_RESOURCES = [
     {
-        "keywords": ("ansiedad", "anxiety"),
+        "keywords": ("ansiedad", "anxiety", "angustia"),
         "title_es": "Ansiedad",
         "title_en": "Anxiety",
         "description_es": "Explicaciones breves sobre síntomas, ansiedad generalizada y estrategias de regulación.",
@@ -419,7 +420,25 @@ VIDEO_RESOURCES = [
         "query": "ansiedad salud mental explicacion",
     },
     {
-        "keywords": ("depres",),
+        "keywords": ("panico", "ataque de panico", "panic attack"),
+        "title_es": "Crisis de pánico",
+        "title_en": "Panic attacks",
+        "description_es": "Información general para comprender las crisis de pánico y conversar sobre ellas con un profesional.",
+        "description_en": "General information to understand panic attacks and discuss them with a professional.",
+        "support_es": [
+            "Si te sientes a salvo, busca un lugar tranquilo y recuerda que puedes pedir compañía a alguien de confianza.",
+            "Intenta describir lo que notas sin juzgarlo; no es necesario forzar la respiración ni hacer ejercicios que te incomoden.",
+            "Si es la primera vez, los síntomas son intensos o tienes dolor de pecho/dificultad para respirar, busca evaluación médica.",
+        ],
+        "support_en": [
+            "If you feel safe, find a calm place and remember you can ask someone you trust to stay with you.",
+            "Try describing what you notice without judging it; you do not need to force your breathing or do exercises that feel uncomfortable.",
+            "If this is the first episode, symptoms are severe, or you have chest pain or trouble breathing, seek medical assessment.",
+        ],
+        "query": "crisis de panico salud mental orientacion",
+    },
+    {
+        "keywords": ("depres", "animo bajo", "perdida de interes", "low mood", "loss of interest"),
         "title_es": "Depresión",
         "title_en": "Depression",
         "description_es": "Recursos orientativos para reconocer síntomas depresivos y señales de alerta.",
@@ -437,7 +456,10 @@ VIDEO_RESOURCES = [
         "query": "depresion salud mental explicacion",
     },
     {
-        "keywords": ("estres", "stress", "sueño", "sueno", "sleep", "insomnio"),
+        "keywords": (
+            "estres", "stress", "sueño", "sueno", "sleep", "insomnio",
+            "dificultad para dormir", "descanso irregular", "problemas de sueño",
+        ),
         "title_es": "Estrés y sueño",
         "title_en": "Stress and sleep",
         "description_es": "Videos para acompañar la identificación del estrés y su impacto en el sueño y la atención.",
@@ -455,7 +477,10 @@ VIDEO_RESOURCES = [
         "query": "estres ansiedad sueño salud mental",
     },
     {
-        "keywords": ("duelo", "grief", "bereavement", "pérdida", "perdida"),
+        "keywords": (
+            "duelo", "grief", "bereavement", "perdida de un ser querido",
+            "fallecimiento", "muerte de un familiar",
+        ),
         "title_es": "Duelo y adaptación",
         "title_en": "Grief and adaptation",
         "description_es": "Material orientativo para sostener procesos de duelo, pérdida y reencuadre emocional.",
@@ -473,7 +498,43 @@ VIDEO_RESOURCES = [
         "query": "duelo salud mental explicacion",
     },
     {
-        "keywords": ("toc", "obses", "compuls", "ocd"),
+        "keywords": ("autoestima", "autoconfianza", "self esteem", "self confidence"),
+        "title_es": "Autoestima y autoconfianza",
+        "title_en": "Self-esteem and self-confidence",
+        "description_es": "Ideas de reflexión sobre autovaloración, autocrítica y búsqueda de apoyo.",
+        "description_en": "Reflection ideas about self-worth, self-criticism, and seeking support.",
+        "support_es": [
+            "Observa cómo te hablas cuando algo no resulta y prueba describir la situación con palabras más amables y realistas.",
+            "Anota una acción pequeña que hayas logrado hoy, sin compararte con otras personas.",
+            "Si la autocrítica afecta tu bienestar, puedes conversarlo con un profesional de salud mental.",
+        ],
+        "support_en": [
+            "Notice how you speak to yourself when something does not go as planned and try a kinder, more realistic description.",
+            "Note one small thing you managed today without comparing yourself to others.",
+            "If self-criticism affects your wellbeing, consider discussing it with a mental health professional.",
+        ],
+        "query": "autoestima salud mental apoyo psicologico",
+    },
+    {
+        "keywords": ("trauma", "estres postraumatico", "post traumatic", "ptsd", "experiencia dificil"),
+        "title_es": "Estrés tras experiencias difíciles",
+        "title_en": "Stress after difficult experiences",
+        "description_es": "Material general sobre reacciones al estrés y cómo buscar apoyo de manera segura.",
+        "description_en": "General material about stress responses and how to seek support safely.",
+        "support_es": [
+            "No tienes que contar detalles de una experiencia difícil si no te sientes preparado/a.",
+            "Identifica a una persona o profesional con quien te sientas seguro/a para pedir apoyo.",
+            "Evita exponerte por tu cuenta a recuerdos o ejercicios intensos; solicita orientación profesional.",
+        ],
+        "support_en": [
+            "You do not have to share details of a difficult experience if you do not feel ready.",
+            "Identify a person or professional you feel safe with to ask for support.",
+            "Avoid confronting memories or intense exercises on your own; ask a professional for guidance.",
+        ],
+        "query": "estres trauma salud mental apoyo profesional",
+    },
+    {
+        "keywords": ("toc", "obses", "compuls", "ocd", "pensamientos repetitivos", "revisar varias veces", "rituales"),
         "title_es": "Trastorno obsesivo-compulsivo",
         "title_en": "Obsessive-compulsive disorder",
         "description_es": "Referencias para entender pensamientos obsesivos, compulsiones y cómo pedir apoyo.",
@@ -491,6 +552,12 @@ VIDEO_RESOURCES = [
         "query": "TOC salud mental explicacion",
     },
 ]
+
+
+def normalizar_texto(texto):
+    texto_normalizado = unicodedata.normalize("NFKD", texto.casefold())
+    return "".join(caracter for caracter in texto_normalizado if not unicodedata.combining(caracter))
+
 
 st.sidebar.header(tr("🔐 Perfil de demostración"))
 perfil_demo = st.sidebar.selectbox(
@@ -514,7 +581,7 @@ else:
     logo_col, title_col = st.columns([1, 4], vertical_alignment="center")
     logo_col.image(str(LOGO_PATH), width=110)
     with title_col:
-        st.title(tr("⛵ MindeLine: Ficha Clínica & Triaje Digital"))
+        st.title(tr("MindeLine: Ficha Clínica & Triaje Digital"))
         st.caption(tr("Plataforma de Asistencia Clínica en Tiempo Real | Protocolos Algorítmicos A-E"))
 
 if perfil_demo != "Paciente":
@@ -584,6 +651,34 @@ if "pacientes" not in st.session_state:
         },
     }
 
+perfiles_demo_adicionales = {
+    "Ana Silva": {
+        "edad": 28,
+        "genero": "Femenino",
+        "antecedentes": "Episodios descritos como crisis de pánico y preocupación por que vuelvan a ocurrir.",
+        "motivo": "Quiere aprender a manejar episodios de miedo intenso.",
+        "sintomas": "Palpitaciones y sensación de alarma durante episodios de angustia.",
+        "tratamiento": "No refiere medicación actual.",
+        "red_apoyo": "Sí",
+        "ultima_revision": "Hace 1 semana",
+        "riesgo": "C",
+    },
+    "Pedro Morales": {
+        "edad": 36,
+        "genero": "Masculino",
+        "antecedentes": "Ánimo bajo y pérdida de interés en actividades durante las últimas semanas.",
+        "motivo": "Consulta por cambios de ánimo y descanso irregular.",
+        "sintomas": "Baja energía, menos interés en actividades y dificultad para dormir.",
+        "tratamiento": "No refiere medicación actual.",
+        "red_apoyo": "Sí",
+        "ultima_revision": "Hace 3 días",
+        "riesgo": "C",
+    },
+}
+
+for nombre_demo, perfil_demo_sintetico in perfiles_demo_adicionales.items():
+    st.session_state.pacientes.setdefault(nombre_demo, perfil_demo_sintetico)
+
 
 def perfil_base(nombre):
     base = {
@@ -606,22 +701,39 @@ else:
     st.sidebar.header(tr("⚙️ Configuración del Sistema"))
 groq_key = st.sidebar.text_input(tr("Groq API Key"), type="password", value="")
 
+st.sidebar.markdown("---")
 if perfil_demo == "Paciente":
-    nombre_paciente = "María González"
+    st.sidebar.header("👤 Perfil de paciente demo" if CURRENT_LANGUAGE == "Español" else "👤 Demo patient profile")
 else:
-    st.sidebar.markdown("---")
     st.sidebar.header(tr("👤 Selección de Paciente"))
-    opciones_pacientes = ["María González", "Carlos Muñoz", "Ana Silva", "Pedro Morales", "➕ Agregar Nuevo Paciente"]
-    paciente_seleccionado = st.sidebar.selectbox(
-        tr("Paciente para la prueba"), opciones_pacientes, format_func=tr
-    )
 
-    if paciente_seleccionado == "➕ Agregar Nuevo Paciente":
-        nombre_paciente = st.sidebar.text_input(
-            tr("Nombre y Apellido del Nuevo Paciente"), tr("Juan Pérez")
-        )
-    else:
-        nombre_paciente = paciente_seleccionado
+opciones_pacientes = [
+    "María González",
+    "Carlos Muñoz",
+    "Ana Silva",
+    "Pedro Morales",
+    "➕ Agregar Nuevo Paciente",
+]
+paciente_seleccionado = st.sidebar.selectbox(
+    tr("Paciente para la prueba"),
+    opciones_pacientes,
+    format_func=tr,
+    key="paciente_seleccionado",
+)
+
+if paciente_seleccionado == "➕ Agregar Nuevo Paciente":
+    nombre_paciente = st.sidebar.text_input(
+        tr("Nombre y Apellido del Nuevo Paciente"), tr("Juan Pérez")
+    )
+else:
+    nombre_paciente = paciente_seleccionado
+
+if perfil_demo == "Paciente":
+    st.sidebar.caption(
+        "Selector de perfiles ficticios; no es una cuenta ni un control de acceso."
+        if CURRENT_LANGUAGE == "Español"
+        else "Demo profiles only; this is not an account or access control."
+    )
 
 if nombre_paciente not in st.session_state.pacientes:
     st.session_state.pacientes[nombre_paciente] = perfil_base(nombre_paciente)
@@ -753,6 +865,7 @@ else:
         tr("🏥 Enfermería"),
         tr("👩‍⚕️ Equipo Tratante"),
         tr("📈 Evolución"),
+        "📚 Recursos de apoyo" if CURRENT_LANGUAGE == "Español" else "📚 Support resources",
     ])
 
 tabs = st.tabs(tab_labels)
@@ -766,6 +879,7 @@ else:
     tab_enfermeria = tabs[3]
     tab_tratante = tabs[4]
     tab_analitica = tabs[5]
+    tab_support = tabs[6]
 
 alertas = obtener_alertas()
 if perfil_demo == "Paciente":
@@ -828,10 +942,12 @@ with tab_dashboard:
 
 with tab_ficha:
     st.subheader(tr("Ficha clínica de {name}", name=nombre_paciente))
-    c1, c2 = st.columns(2) if perfil_demo == "Paciente" else st.columns(4)
+    columnas_ficha = st.columns(2 if perfil_demo == "Paciente" else 4)
+    c1, c2 = columnas_ficha[:2]
     c1.metric(tr("Edad"), tr("Edad: {age} años", age=perfil_actual.get("edad", 0)))
     c2.metric(tr("Género"), tr(perfil_actual.get("genero", "-"))[:14])
     if perfil_demo != "Paciente":
+        c3, c4 = columnas_ficha[2:]
         c3.metric(tr("Riesgo actual"), perfil_actual.get("riesgo", "E"))
         c4.metric(tr("Última revisión"), tr(perfil_actual.get("ultima_revision", "Nunca")))
 
@@ -861,59 +977,70 @@ with tab_ficha:
         )
         st.info(resumen_texto)
 
-if perfil_demo == "Paciente":
-    with tab_support:
+with tab_support:
+    if perfil_demo == "Paciente":
         if CURRENT_LANGUAGE == "English":
             st.subheader("Support for you")
-            st.caption("Resources are matched to topics mentioned in your demo record. This is not a diagnosis or a treatment plan.")
+            st.caption("Resources are matched to topics in your demo record. They are educational, not a diagnosis or treatment plan.")
         else:
             st.subheader("Apoyo para ti")
-            st.caption("Los recursos se relacionan con temas mencionados en tus antecedentes de demostración. No son un diagnóstico ni un plan de tratamiento.")
+            st.caption("Los recursos se relacionan con temas de tu ficha de demostración. Son educativos, no un diagnóstico ni un plan de tratamiento.")
+    elif CURRENT_LANGUAGE == "English":
+        st.subheader(f"Support resources · {nombre_paciente}")
+        st.caption("Resources are matched to the selected patient's record for educational reference only; validate them with the care team.")
+    else:
+        st.subheader(f"Recursos de apoyo · {nombre_paciente}")
+        st.caption("Los recursos se relacionan con la ficha del paciente seleccionado y son solo orientativos; valídalos con el equipo tratante.")
 
-        antecedentes = perfil_actual.get("antecedentes", "").casefold()
-        recursos_relacionados = [
-            video for video in VIDEO_RESOURCES
-            if any(keyword in antecedentes for keyword in video["keywords"])
-        ]
+    texto_ficha = normalizar_texto(" ".join(
+        str(perfil_actual.get(campo, ""))
+        for campo in ("antecedentes", "motivo", "sintomas")
+    ))
+    recursos_relacionados = [
+        video for video in VIDEO_RESOURCES
+        if any(normalizar_texto(keyword) in texto_ficha for keyword in video["keywords"])
+    ]
 
-        if recursos_relacionados:
-            if CURRENT_LANGUAGE == "English":
-                st.write("Based on the information in your record, these topics may be useful to explore:")
-            else:
-                st.write("Según la información de tu ficha, estos temas podrían ser útiles para explorar:")
-
-            for video in recursos_relacionados:
-                titulo_video = video["title_en"] if CURRENT_LANGUAGE == "English" else video["title_es"]
-                descripcion_video = video["description_en"] if CURRENT_LANGUAGE == "English" else video["description_es"]
-                sugerencias = video["support_en"] if CURRENT_LANGUAGE == "English" else video["support_es"]
-                with st.expander(titulo_video, expanded=True):
-                    st.write(descripcion_video)
-                    st.markdown("**" + ("Ideas de apoyo general" if CURRENT_LANGUAGE == "Español" else "General support ideas") + "**")
-                    for sugerencia in sugerencias:
-                        st.markdown(f"- {sugerencia}")
-                    video_url = f"https://www.youtube.com/results?search_query={quote_plus(video['query'])}"
-                    st.link_button(
-                        "Ver videos en YouTube" if CURRENT_LANGUAGE == "Español" else "Watch videos on YouTube",
-                        video_url,
-                    )
-        else:
-            if CURRENT_LANGUAGE == "English":
-                st.info("No specific educational topic is linked to the information in this demo record yet. Ask your care team for resources that fit your needs.")
-            else:
-                st.info("Aún no hay un tema educativo asociado a la información de esta ficha de demostración. Pide a tu equipo de salud recursos adecuados para ti.")
-
-        if any(term in (perfil_actual.get("motivo", "") + " " + perfil_actual.get("sintomas", "")).casefold()
-               for term in ("dolor en el pecho", "presión torácica", "presion toracica", "chest pain")):
-            if CURRENT_LANGUAGE == "English":
-                st.warning("Chest pain should not automatically be attributed to anxiety. For new or severe chest pain, trouble breathing, or fainting, seek urgent medical care.")
-            else:
-                st.warning("El dolor o la presión en el pecho no deben atribuirse automáticamente a la ansiedad. Si son nuevos o intensos, o aparecen con dificultad para respirar o desmayo, busca atención médica urgente.")
-
+    if recursos_relacionados:
         if CURRENT_LANGUAGE == "English":
-            st.caption("These general ideas do not replace professional care. Do not change medication without talking to the prescriber. For immediate danger, contact local emergency services or your care team.")
+            st.write("Topics related to this record:")
         else:
-            st.caption("Estas ideas generales no reemplazan la atención profesional. No cambies medicamentos sin hablar con quien los indicó. Si hay peligro inmediato, contacta los servicios de emergencia locales o a tu equipo de salud.")
+            st.write("Temas relacionados con esta ficha:")
 
+        for video in recursos_relacionados:
+            titulo_video = video["title_en"] if CURRENT_LANGUAGE == "English" else video["title_es"]
+            descripcion_video = video["description_en"] if CURRENT_LANGUAGE == "English" else video["description_es"]
+            sugerencias = video["support_en"] if CURRENT_LANGUAGE == "English" else video["support_es"]
+            with st.expander(titulo_video, expanded=True):
+                st.write(descripcion_video)
+                st.markdown("**" + ("Ideas de apoyo general" if CURRENT_LANGUAGE == "Español" else "General support ideas") + "**")
+                for sugerencia in sugerencias:
+                    st.markdown(f"- {sugerencia}")
+                video_url = f"https://www.youtube.com/results?search_query={quote_plus(video['query'])}"
+                st.link_button(
+                    "Ver videos en YouTube" if CURRENT_LANGUAGE == "Español" else "Watch videos on YouTube",
+                    video_url,
+                )
+    elif CURRENT_LANGUAGE == "English":
+        st.info("No educational topic matched this record. Ask the care team for resources suited to this patient.")
+    else:
+        st.info("No encontramos un tema educativo relacionado con esta ficha. Consulta con el equipo tratante qué recursos son adecuados para este paciente.")
+
+    texto_sintomas = normalizar_texto(
+        f"{perfil_actual.get('motivo', '')} {perfil_actual.get('sintomas', '')}"
+    )
+    if any(term in texto_sintomas for term in ("dolor en el pecho", "presion toracica", "chest pain")):
+        if CURRENT_LANGUAGE == "English":
+            st.warning("Chest pain should not automatically be attributed to anxiety. For new or severe chest pain, trouble breathing, or fainting, seek urgent medical care.")
+        else:
+            st.warning("El dolor o la presión en el pecho no deben atribuirse automáticamente a la ansiedad. Si son nuevos o intensos, o aparecen con dificultad para respirar o desmayo, busca atención médica urgente.")
+
+    if CURRENT_LANGUAGE == "English":
+        st.caption("These general ideas do not replace professional care. Do not change medication without talking to the prescriber. For immediate danger, contact local emergency services or the care team.")
+    else:
+        st.caption("Estas ideas generales no reemplazan la atención profesional. No cambies medicamentos sin hablar con quien los indicó. Si hay peligro inmediato, contacta los servicios de emergencia locales o al equipo de salud.")
+
+    if perfil_demo == "Paciente":
         st.markdown("---")
         if CURRENT_LANGUAGE == "English":
             st.markdown("### How are you feeling right now?")
@@ -944,6 +1071,7 @@ if perfil_demo == "Paciente":
             else:
                 st.success(f"Gracias por compartirlo: {st.session_state['patient_mood_checkin']}. Queda solo en esta sesión de demostración y no se envía al equipo de salud.")
 
+if perfil_demo == "Paciente":
     st.stop()
 
 if perfil_demo != "Paciente":

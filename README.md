@@ -47,6 +47,7 @@ La **Groq API Key** del panel lateral solo permite solicitar el análisis de tex
 - **Triaje clínico:** lista las alertas procesadas; permite tomar casos pendientes y muestra un aviso de crisis para nivel A.
 - **Enfermería:** presenta casos sintéticos de ejemplo y ofrece marcar esos casos como revisados. Los registros del simulador aparecen en una lista resumida.
 - **Equipo tratante:** ofrece filtros CIE-10 y recuentos de ejemplo. No consulta expedientes ni datos reales y no realiza diagnósticos.
+- **Mi apoyo / Recursos de apoyo:** relaciona la ficha seleccionada (antecedentes, motivo y síntomas) con recursos educativos generales sobre ansiedad, pánico, depresión, estrés y sueño, duelo, autoestima, estrés tras experiencias difíciles y TOC. En el perfil paciente también incluye un check-in de ánimo por emoji, guardado solo durante la sesión.
 - **Evolución:** muestra el historial disponible y un gráfico por nivel de riesgo del paciente seleccionado.
 - **Simulador de mensajes:** procesa texto o archivos de audio mediante Groq. Se necesita una API Key válida.
 
@@ -67,6 +68,7 @@ La clasificación automática es orientativa y no sustituye evaluación profesio
 - No se utiliza una base de datos: las alertas se guardan en memoria mientras el proceso está activo.
 - Los datos en memoria pueden desaparecer al reiniciar la aplicación.
 - Hay perfiles y casos precargados ficticios para la demostración.
+- Los perfiles demo disponibles son María (ansiedad y duelo), Carlos (ansiedad/estrés), Ana (episodios descritos como pánico) y Pedro (ánimo bajo y sueño irregular); son escenarios sintéticos, no diagnósticos.
 - No ingreses datos personales, identificadores, notas clínicas reales ni información sensible en la app o en servicios de IA externos.
 - La clave de Groq no debe agregarse al código ni al README.
 
