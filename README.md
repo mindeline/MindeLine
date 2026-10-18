@@ -1,86 +1,130 @@
-# MindeLine — Ficha clínica y triaje digital
+# MindeLine — demo reforzada sin base de datos
 
-Prototipo de demostración hecho con Streamlit para mostrar una ficha clínica, el flujo de triaje A–E y vistas de trabajo para paciente, enfermería y equipo tratante.
+Prototipo Streamlit bilingüe para explorar fichas y revisión de solicitudes de salud mental.
+**Solo datos sintéticos. No preparado para pacientes reales, decisiones clínicas ni emergencias.**
 
-> **Importante:** es una demo con datos sintéticos. No está preparada para guardar ni procesar datos clínicos reales, tomar decisiones médicas ni atender emergencias. El selector de perfil no autentica usuarios ni restringe el acceso.
+Esta revisión parte del ZIP de la rama `feature/mindeline-current-work` proporcionado por el usuario.
+No incluye una base de datos. El almacenamiento y el historial de acciones son temporales.
 
-## Iniciar la aplicación
+## Inicio local: PowerShell / Windows
 
-Desde PowerShell, en la carpeta del proyecto:
+Desde la carpeta que contiene `app.py` (Python 3.12 recomendado):
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+$env:MINDELINE_MODE = "demo"
 python -m streamlit run app.py
 ```
 
-Abre la dirección que muestra Streamlit, normalmente <http://localhost:8501>.
+En macOS/Linux:
 
-Para detener el servidor, vuelve a la ventana de PowerShell y presiona `Ctrl+C`.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+MINDELINE_MODE=demo python -m streamlit run app.py
+```
 
-## Idioma / Language
+Abre http://localhost:8501. La configuración escucha solo en `127.0.0.1`.
+El modo demo requiere una selección explícita y no debe exponerse a Internet.
+Cada sesión de demo dispone de su propio repositorio aislado. Cambiar de rol dentro de la
+misma sesión permite probar el recorrido; otra ventana/sesión no comparte esos registros.
 
-Use the **Language / Idioma** selector at the top of the sidebar to switch the interface between Spanish and English. AI-generated summaries follow the selected language. Audio transcription uses the selected language as a hint; patient names and original message/transcript content remain in the language in which they were entered or spoken.
+## Acceso restringido opcional
 
-## Perfiles y accesos de demostración
+Sin `MINDELINE_MODE=demo`, la aplicación exige configuración de acceso y permanece bloqueada
+si esta falta. Ver **SEGURIDAD.md** y `.streamlit/secrets.example.toml`.
+Se usa el inicio de sesión OIDC de Streamlit y una lista de asignaciones del servidor.
+No hay contraseñas propias, alta de usuarios ni panel administrador.
+La conexión al proveedor OIDC debe configurarse y probarse antes de usar este modo.
+Sigue siendo una demo con datos sintéticos incluso con inicio de sesión.
 
-En la barra lateral, el selector **“Ver la experiencia como”** permite elegir un perfil y muestra su flujo orientativo.
+## Qué cambió
 
-| Perfil | Qué representa en la demo | Funciones relacionadas |
-|---|---|---|
-| **Paciente** | Persona que comparte una actualización de texto o audio. | Seleccionar un paciente de prueba, completar su ficha y enviar un mensaje para procesarlo con IA. |
-| **Enfermería** | Equipo que recibe y revisa solicitudes. | Consultar la bandeja de enfermería, revisar casos de ejemplo y marcar los casos demo como revisados. |
-| **Equipo tratante (médico)** | Personal clínico que consulta la información para seguimiento. | Revisar fichas y alertas, consultar el historial y usar el filtro CIE-10 de ejemplo. |
-| **Administrador** | No existe como perfil funcional en esta versión. | No hay panel de administración, cuentas, contraseñas ni funciones administrativas implementadas. |
+- Repositorio temporal común para fichas, solicitudes y seguimiento, protegido por un bloqueo de concurrencia.
+- Solicitudes guardadas antes de intentar el análisis, incluso sin API key o cuando el proveedor falla.
+- Estado de análisis separado del estado de atención. Los casos sin resultado se muestran como **Sin evaluar**.
+- Mensaje original, transcripción, modelo, versión del prompt y frase de respaldo separados.
+- Validación de valores y tipos de la respuesta de IA; sin cambio silencioso de modelo.
+- Eliminado el PHQ-9 generado por IA: no se recopila un cuestionario ni se presenta un puntaje estimado.
+- La prioridad abierta corresponde al nivel más alto entre alertas no cerradas; un nuevo E no borra un A pendiente.
+  No representa una evaluación clínica del paciente. Casos sin análisis permanecen visibles en Triaje.
+- Tomar caso asigna un responsable; solo ese responsable puede cerrarlo con una nota.
+- Autorización de lecturas y escrituras por rol y paciente en el repositorio, además de controles de interfaz.
+- El paciente no puede editar tratamiento ni otros campos clínicos.
+- Confirmación explícita antes de enviar datos sintéticos a Groq, límites de entrada y de reintentos.
+- Nombres y resúmenes interpolados en tarjetas HTML se escapan.
+- Audio temporal eliminado del disco al terminar la llamada; los bytes se descartan al completar o cerrar el caso.
+- Estados de ánimo asociados al paciente, no a una clave global de interfaz.
 
-### Credenciales
+## Recorrido verificable sin proveedor de IA
 
-No hay nombres de usuario, contraseñas ni cuentas de paciente, médico o administrador. El selector cambia el texto del flujo de demostración, pero **no oculta pestañas ni controla permisos**. Cualquier persona que pueda abrir la aplicación puede ver sus vistas.
+1. En modo demo, elige Paciente y un perfil ficticio.
+2. Envía un mensaje sin clave de Groq: queda registrado sin análisis.
+3. Cambia a Enfermería en la misma sesión.
+4. Abre Triaje, incluye **Sin evaluar**, toma el caso y escribe una nota para cerrarlo.
+5. Consulta su historial de acciones.
 
-La **Groq API Key** del panel lateral solo permite solicitar el análisis de texto/audio a Groq; no es una credencial de acceso a MindeLine. No escribas claves en este archivo ni las compartas. El análisis requiere conexión a Internet y una clave válida.
+Reiniciar el proceso pierde todos esos datos. En modo demo, perder la sesión también los pierde.
+No existe un mecanismo de recuperación ni exportación de información clínica.
 
-## Qué hace cada sección
+## IA opcional
 
-- **Dashboard:** muestra el recuento de alertas, casos A/B y pendientes, además del último caso y el nivel de riesgo del paciente seleccionado.
-- **Ficha clínica:** presenta y permite editar datos demo: edad, género, antecedentes, motivo de consulta, síntomas, tratamiento y red de apoyo. El resumen se genera con los campos de esa ficha.
-- **Triaje clínico:** lista las alertas procesadas; permite tomar casos pendientes y muestra un aviso de crisis para nivel A.
-- **Enfermería:** presenta casos sintéticos de ejemplo y ofrece marcar esos casos como revisados. Los registros del simulador aparecen en una lista resumida.
-- **Equipo tratante:** ofrece filtros CIE-10 y recuentos de ejemplo. No consulta expedientes ni datos reales y no realiza diagnósticos.
-- **Mi apoyo / Recursos de apoyo:** relaciona la ficha seleccionada (antecedentes, motivo y síntomas) con recursos educativos generales sobre ansiedad, pánico, depresión, estrés y sueño, duelo, autoestima, estrés tras experiencias difíciles y TOC. En el perfil paciente también incluye un check-in de ánimo por emoji, guardado solo durante la sesión.
-- **Evolución:** muestra el historial disponible y un gráfico por nivel de riesgo del paciente seleccionado.
-- **Simulador de mensajes:** procesa texto o archivos de audio mediante Groq. Se necesita una API Key válida.
+En demo puede ingresarse una clave en el panel lateral; permanece en el estado de la sesión.
+En modo restringido la clave se configura únicamente en el servidor, mediante `GROQ_API_KEY`
+o `[groq].api_key` en secrets.toml. No se imprime la clave ni los errores crudos del proveedor.
+El modelo se configura en `[groq].model` o `MINDELINE_AI_MODEL`; por defecto se usa
+`openai/gpt-oss-20b`, cuya disponibilidad debe comprobarse en la cuenta.
 
-### Niveles de riesgo de la demo
+El envío al proveedor requiere marcar la confirmación de datos ficticios. Esa autorización
+queda asociada a la solicitud: no se puede reintentar el análisis de una solicitud no autorizada.
+Para autorizar un mensaje registrado sin ella, envíalo de nuevo marcando la confirmación.
+Los reintentos desde Triaje requieren clave del servidor/sesión, autorización previa,
+15 segundos entre inicios de análisis por identidad y un máximo de 5 intentos por caso.
 
-| Nivel | Etiqueta |
-|---|---|
-| A | Emergencia |
-| B | Urgencia |
-| C | Prioritario |
-| D | Seguimiento |
-| E | Rutina |
+Límites: 8.000 caracteres; 5 MiB por audio; 1.000 solicitudes; 25 MiB de audio pendiente por
+repositorio. Al llegar a capacidad se rechaza el envío explícitamente; no se borran casos silenciosamente.
+Estas cuotas son controles básicos de demo, no protección completa contra abuso en Internet.
 
-La clasificación automática es orientativa y no sustituye evaluación profesional. Ante una emergencia real, contacta los servicios de emergencia locales o un profesional de salud.
+## Pruebas
 
-## Almacenamiento y privacidad
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
 
-- No se utiliza una base de datos: las alertas se guardan en memoria mientras el proceso está activo.
-- Los datos en memoria pueden desaparecer al reiniciar la aplicación.
-- Hay perfiles y casos precargados ficticios para la demostración.
-- Los perfiles demo disponibles son María (ansiedad y duelo), Carlos (ansiedad/estrés), Ana (episodios descritos como pánico) y Pedro (ánimo bajo y sueño irregular); son escenarios sintéticos, no diagnósticos.
-- No ingreses datos personales, identificadores, notas clínicas reales ni información sensible en la app o en servicios de IA externos.
-- La clave de Groq no debe agregarse al código ni al README.
+Las pruebas no requieren claves ni llaman al proveedor. Cubren permisos, aislamiento, validación,
+concurrencia, errores, prioridades abiertas y recorrido de interfaz con `AppTest`.
+`python test_groq.py` es un diagnóstico manual opcional que lista modelos disponibles;
+no ejecuta inferencias y no se ejecuta al importar el módulo.
 
-## Archivos principales
+## Estructura
 
-- `app.py`: interfaz Streamlit, perfiles demo, fichas, pestañas y flujos de trabajo.
-- `assets/mindeline_logo.png`: archivo original del logotipo de MindeLine.
-- `assets/mindeline_logo_transparent.png`: versión de alto contraste usada en la interfaz.
-- `db.py`: almacenamiento temporal de alertas en memoria; pese al nombre del archivo, no conecta a una base de datos.
-- `backend_ai.py`: envío de texto/audio a Groq para generar transcripción y clasificación orientativa.
-- `requirements.txt`: dependencias de Python.
+- `app.py`: interfaz, traducciones, datos sintéticos y composición del flujo.
+- `db.py`: repositorio **en memoria**, sin conexión a una base de datos.
+- `backend_ai.py`: validación y llamadas acotadas a Groq.
+- `security.py`: identidad y permisos independientes de la interfaz.
+- `access_ui.py`: puerta de entrada OIDC y configuración de modos.
+- `.streamlit/config.toml`: tema, escucha local, CORS/XSRF y tamaño de subida.
+- `SEGURIDAD.md`: configuración, límites y comprobaciones antes de compartir la app.
+- `tests/`: pruebas automatizadas sin servicios externos.
 
-## Pendiente antes de cualquier uso real
+## Funciones que siguen siendo ejemplos o están pendientes
 
-Implementar autenticación, permisos por rol en el servidor, almacenamiento seguro, protección de datos, auditoría, manejo seguro de secretos y revisión clínica/legal. El perfil de administrador y la autenticación paciente/médico no están disponibles en este prototipo.
+Los recuentos CIE-10 y casos precargados de enfermería son ejemplos independientes; no hay
+integración WhatsApp. Los enlaces educativos abren búsquedas en YouTube, no un catálogo revisado.
+El gráfico cuenta alertas por nivel, no mide evolución clínica. No hay envío de notificaciones,
+derivación externa, alertas de emergencia ni confirmación de recepción por un equipo real.
+
+Pendientes: persistencia, identificadores de paciente independientes del nombre, auditoría durable,
+recuperación, gestión de usuarios y asignaciones, notificaciones verificables, validación clínica,
+revisión de privacidad y proveedores, pruebas de despliegue y revisión de seguridad independiente.
+
+## Acceso desde WhatsApp y proyecto Android
+
+Se agregó `channels/` con un bot de menú para WhatsApp Cloud API, página de respaldo móvil y
+verificación de enlaces Android. `android/` contiene el proyecto Android, pendiente de configurar,
+compilar y firmar. No se incluye una APK instalada/compilada ni un bot conectado.
+Consulta `CANALES_WHATSAPP_ANDROID.md`. La web y el dominio de acceso requieren sus URLs reales.

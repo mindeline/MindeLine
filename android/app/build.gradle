@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+
+def links = new Properties()
+def configFile = rootProject.file('mindeline.properties')
+if (!configFile.exists()) {
+    throw new GradleException('Run python channels/configure_android.py --web-url URL --gateway-url ORIGIN from the MindeLine root first.')
+}
+configFile.withInputStream { links.load(it) }
+def webUrl = links.getProperty('webUrl')
+def gatewayHost = links.getProperty('gatewayHost')
+def webUri = new URI(webUrl ?: '')
+if (webUri.scheme != 'https' || !webUri.host || webUri.userInfo || webUri.query || webUri.fragment || webUri.host.endsWith('.invalid')) {
+    throw new GradleException('A configured public HTTPS web URL is required.')
+}
+if (!(gatewayHost ==~ /[a-zA-Z0-9.-]+/) || gatewayHost.endsWith('.invalid')) {
+    throw new GradleException('A configured HTTPS gateway host is required.')
+}
+android {
+    namespace 'app.mindeline.mobile'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'app.mindeline.mobile'
+        minSdk 23
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0-demo'
+        manifestPlaceholders = [webUrl: webUrl, gatewayHost: gatewayHost]
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
+dependencies { implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4' }

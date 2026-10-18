@@ -1,0 +1,27 @@
+[theme]
+primaryColor = "#237873"
+backgroundColor = "#F4F6FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#192436"
+font = "sans serif"
+baseRadius = "8px"
+borderColor = "#DDE2EA"
+
+[theme.sidebar]
+backgroundColor = "#192436"
+secondaryBackgroundColor = "#33425E"
+textColor = "#C9D1DE"
+borderColor = "#33425E"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+address = "127.0.0.1"
+enableCORS = true
+enableXsrfProtection = true
+maxUploadSize = 5
+

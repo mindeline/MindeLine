@@ -7,3 +7,12 @@ mindeline.db
 .env.*
 !.env.example
 temp_*
+
+.streamlit/secrets.toml
+.pytest_cache/
+
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
