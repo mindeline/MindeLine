@@ -1,4 +1,5 @@
 streamlit
 pandas
-groq
 plotly
+groq
+python-dotenv
