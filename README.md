@@ -63,6 +63,18 @@ La **Groq API Key** del panel lateral solo permite solicitar el análisis de tex
 
 La clasificación automática es orientativa y no sustituye evaluación profesional. Ante una emergencia real, contacta los servicios de emergencia locales o un profesional de salud.
 
+## Diseño e identidad visual
+
+La interfaz sigue la **Guía de diseño MindeLine v1.0 (octubre 2026)**:
+
+- **Paleta:** navy `#192436` (marca, menú), teal `#237873` (botones, links, foco), canvas `#F4F6FA`, tarjetas `#FFFFFF` con borde `#DDE2EA`. El tema base está en `.streamlit/config.toml` y el resto de los estilos en el bloque `CSS` de `app.py`.
+- **Tipografía:** Montserrat 600 para títulos e Inter para texto e interfaz.
+- **Estados clínicos:** los niveles A–E se muestran como badges con los colores de estado de la guía (`NIVELES` en `app.py`): A Riesgo alto, B Revisar, C amarillo, D gris, E Estable.
+- **Forma:** radio de 8 px en botones, campos y tarjetas; sin sombras en tarjetas.
+- **Logo:** `assets/mindeline_logo_white.png` se usa sobre el menú navy (versión blanca generada a partir del logo transparente).
+
+Requiere Streamlit 1.50 o superior (tema de la barra lateral, `st.logo`, íconos Material).
+
 ## Almacenamiento y privacidad
 
 - No se utiliza una base de datos: las alertas se guardan en memoria mientras el proceso está activo.
@@ -77,6 +89,8 @@ La clasificación automática es orientativa y no sustituye evaluación profesio
 - `app.py`: interfaz Streamlit, perfiles demo, fichas, pestañas y flujos de trabajo.
 - `assets/mindeline_logo.png`: archivo original del logotipo de MindeLine.
 - `assets/mindeline_logo_transparent.png`: versión de alto contraste usada en la interfaz.
+- `assets/mindeline_logo_white.png`: logo blanco para el menú lateral navy.
+- `.streamlit/config.toml`: tema (colores y radios) según la guía de diseño.
 - `db.py`: almacenamiento temporal de alertas en memoria; pese al nombre del archivo, no conecta a una base de datos.
 - `backend_ai.py`: envío de texto/audio a Groq para generar transcripción y clasificación orientativa.
 - `requirements.txt`: dependencias de Python.

@@ -1,361 +1,246 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+"""MindeLine · Ficha clínica y triaje digital (prototipo de demostración).
+
+Interfaz Streamlit con la guía de diseño MindeLine v1.0 (octubre 2026).
+Datos sintéticos: no usar con datos clínicos reales.
+"""
+
+import os
+import tempfile
+import unicodedata
 from pathlib import Path
 from urllib.parse import quote_plus
-import unicodedata
-from db import init_db, guardar_alerta, obtener_alertas, actualizar_estado_alerta
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 from backend_ai import procesar_audio_o_texto
+from db import actualizar_estado_alerta, guardar_alerta, init_db, obtener_alertas
 
-TRANSLATIONS = {
-    "Español": {},
-    "English": {
-        "🔐 Perfil de demostración": "🔐 Demo profile",
-        "Ver la experiencia como": "View the experience as",
-        "Paciente": "Patient",
-        "Enfermería": "Nursing",
-        "Equipo tratante": "Care team",
-        "Selector de demo; no es inicio de sesión ni control de acceso.": "Demo selector; this is not a login or access control.",
-        "Tu espacio de acompañamiento": "Your support space",
-        "Comparte cómo te sientes mediante el simulador de mensajes. Si necesitas ayuda inmediata, contacta los servicios de emergencia locales o a tu equipo de salud.": "Share how you are feeling using the message simulator. If you need immediate help, contact local emergency services or your healthcare team.",
-        "1. Compartir una actualización": "1. Share an update",
-        "2. El equipo revisa la solicitud": "2. The team reviews the request",
-        "3. Recibir seguimiento": "3. Receive follow-up",
-        "Flujo de recepción y acompañamiento": "Intake and support workflow",
-        "Revisa la bandeja, identifica solicitudes pendientes y marca cada caso cuando haya sido revisado.": "Review the inbox, identify pending requests, and mark each case once reviewed.",
-        "1. Revisar casos entrantes": "1. Review incoming cases",
-        "2. Tomar o marcar casos": "2. Take or mark cases",
-        "3. Derivar al equipo tratante cuando corresponda": "3. Refer to the care team when appropriate",
-        "Flujo de revisión clínica": "Clinical review workflow",
-        "Consulta la ficha, revisa alertas y utiliza los filtros de apoyo como referencia; valida siempre las decisiones clínicamente.": "Review the patient record and alerts. Use support filters as references and always validate decisions clinically.",
-        "1. Revisar ficha e historial": "1. Review the record and history",
-        "2. Evaluar alertas priorizadas": "2. Assess prioritized alerts",
-        "3. Registrar seguimiento en la ficha": "3. Record follow-up in the patient record",
-        "Prototipo de demostración con datos sintéticos. No usar para decisiones clínicas ni datos reales.": "Demo prototype with synthetic data. Do not use for clinical decisions or real patient data.",
-        "MindeLine: Ficha Clínica & Triaje Digital": "MindeLine: Clinical Record & Digital Triage",
-        "Plataforma de Asistencia Clínica en Tiempo Real | Protocolos Algorítmicos A-E": "Real-Time Clinical Support Platform | A-E Triage Protocols",
-        "Resumen ejecutivo": "Executive summary",
-        "Panel clínico para priorización de riesgo, apoyo enfermero y coordinación del equipo tratante.": "Clinical dashboard for risk prioritization, nursing support, and care-team coordination.",
-        "Trastornos mentales y del comportamiento": "Mental and behavioral disorders",
-        "Trastornos del ánimo": "Mood disorders",
-        "Depresión mayor": "Major depressive disorder",
-        "Trastorno depresivo recurrente": "Recurrent depressive disorder",
-        "Trastornos del ánimo persistentes": "Persistent mood disorders",
-        "Trastornos neuróticos, relacionados con estrés y somatomorfos": "Neurotic, stress-related, and somatoform disorders",
-        "Trastornos de ansiedad": "Anxiety disorders",
-        "Reacciones ante estrés severo": "Reactions to severe stress",
-        "Otros trastornos neuróticos": "Other neurotic disorders",
-        "Síntomas, signos y hallazgos anormales": "Symptoms, signs, and abnormal findings",
-        "Síntomas del sistema nervioso y del organismo": "Symptoms involving the nervous system and body",
-        "Síntomas de ansiedad": "Symptoms of anxiety",
-        "Síntomas y signos del sistema nervioso": "Symptoms and signs involving the nervous system",
-        "Configuración del Sistema": "System settings",
-        "Groq API Key": "Groq API key",
-        "Selección de Paciente": "Patient selection",
-        "Paciente para la prueba": "Patient for the demo",
-        "➕ Agregar Nuevo Paciente": "➕ Add new patient",
-        "Nombre y Apellido del Nuevo Paciente": "New patient's full name",
-        "Juan Pérez": "Juan Perez",
-        "Ficha del paciente": "Patient record",
-        "Edad": "Age",
-        "Género": "Gender",
-        "Femenino": "Female",
-        "Masculino": "Male",
-        "No binario": "Non-binary",
-        "Prefiero no decirlo": "Prefer not to say",
-        "Antecedentes relevantes": "Relevant medical history",
-        "Motivo de consulta": "Reason for visit",
-        "Síntomas principales": "Main symptoms",
-        "Tratamiento / medicación": "Treatment / medication",
-        "Red de apoyo": "Support network",
-        "Sí": "Yes",
-        "No": "No",
-        "Guardar ficha": "Save patient record",
-        "Ahora": "Now",
-        "✅ Ficha actualizada para {name}": "✅ Patient record updated for {name}",
-        "Simulador de Mensajes": "Message simulator",
-        "Canal de Entrada": "Input method",
-        "Texto Directo": "Text message",
-        "Nota de Voz (Audio)": "Voice note (audio)",
-        "Mensaje del Paciente": "Patient message",
-        "Siento mucha angustia y dolor en el pecho, necesito ayuda.": "I feel very anxious and have chest pain. I need help.",
-        "Enviar Mensaje": "Send message",
-        "Ingresa la API Key de Groq.": "Enter your Groq API key.",
-        "Procesando con Llama 3...": "Processing with Llama 3...",
-        "Texto": "Text",
-        "✅ Alerta registrada para {name}": "✅ Alert recorded for {name}",
-        "Subir nota de voz (.mp3, .wav)": "Upload a voice note (.mp3, .wav)",
-        "Procesar Audio": "Process audio",
-        "Transcribiendo con Whisper...": "Transcribing with Whisper...",
-        "Audio": "Audio",
-        "[Nota de voz]": "[Voice note]",
-        "✅ Audio procesado para {name}": "✅ Audio processed for {name}",
-        "NIVEL A - EMERGENCIA": "LEVEL A - EMERGENCY",
-        "NIVEL B - URGENCIA": "LEVEL B - URGENT",
-        "NIVEL C - PRIORITARIO": "LEVEL C - PRIORITY",
-        "NIVEL D - SEGUIMIENTO": "LEVEL D - FOLLOW-UP",
-        "NIVEL E - RUTINA": "LEVEL E - ROUTINE",
-        "🚨 **PROTOCOLO DE CRISIS:** Derivar a SAMU 131 o Salud Responde *4141.": "🚨 **CRISIS PROTOCOL:** Contact local emergency services or the patient's care team immediately.",
-        "Transcripción": "Transcript",
-        "Síntesis": "Summary",
-        "PHQ-9 estimado": "Estimated PHQ-9",
-        "Tomar Caso": "Take case",
-        "En Atencion": "In progress",
-        "🏠 Dashboard": "🏠 Dashboard",
-        "🧾 Ficha Clínica": "🧾 Patient record",
-        "🚨 Triaje Clínico": "🚨 Clinical triage",
-        "🏥 Enfermería": "🏥 Nursing",
-        "👩‍⚕️ Equipo Tratante": "👩‍⚕️ Care team",
-        "📈 Evolución": "📈 Trends",
-        "Interacciones totales": "Total interactions",
-        "Pendientes": "Pending",
-        "Estado clínico actual": "Current clinical status",
-        "Último caso: {name} · nivel {level} · {status} · {date}\n\n{summary}": "Latest case: {name} · level {level} · {status} · {date}\n\n{summary}",
-        "No hay alertas registradas aún. El sistema está listo para recibir mensajes o audio del paciente.": "No alerts have been recorded yet. The system is ready to receive patient text or audio messages.",
-        "Riesgo del paciente activo": "Active patient's risk",
-        "Paciente: {name}": "Patient: {name}",
-        "Edad: {age} años": "Age: {age} years",
-        "Ficha clínica de {name}": "Clinical record for {name}",
-        "Riesgo actual": "Current risk",
-        "Última revisión": "Last review",
-        "Sin antecedentes cargados.": "No medical history entered.",
-        "Sin motivo registrado.": "No reason for visit recorded.",
-        "Sin síntomas registrados.": "No symptoms recorded.",
-        "Sin medicación cargada.": "No medication entered.",
-        "Estado general": "Overall status",
-        "Estable": "Stable",
-        "Necesita seguimiento": "Follow-up needed",
-        "### Resumen ejecutivo": "### Executive summary",
-        "Paciente {name} ({age} años), con {reason}. Actualmente presenta {symptoms}. Se recomienda revisar nivel {level} y reforzar seguimiento si corresponde.": "Patient {name} ({age} years old) presents with {reason}. Current symptoms: {symptoms}. Review risk level {level} and provide follow-up as appropriate.",
-        "👋 No hay alertas registradas.": "👋 No alerts have been recorded.",
-        "Interacciones Totales": "Total interactions",
-        "Emergencias Nivel A": "Level A emergencies",
-        "Urgencias Nivel B": "Level B urgent cases",
-        "Casos Pendientes": "Pending cases",
-        "Bandeja de enfermería": "Nursing inbox",
-        "Los casos recibidos por WhatsApp o por el simulador se revisan aquí antes de su derivación.": "Cases received through WhatsApp or the simulator are reviewed here before referral.",
-        "Todavía no hay casos recibidos por WhatsApp.": "No WhatsApp cases have been received yet.",
-        "alta": "High",
-        "media": "Medium",
-        "baja": "Low",
-        "Alta": "High",
-        "Media": "Medium",
-        "Baja": "Low",
-        "WhatsApp": "WhatsApp",
-        "Teléfono": "Phone",
-        "Resumen": "Summary",
-        "Detalle": "Details",
-        "Estado": "Status",
-        "Urgencia {urgency}": "Urgency: {urgency}",
-        "Marcar como revisado": "Mark as reviewed",
-        "Revisado": "Reviewed",
-        "### Casos registrados en MindeLine": "### Cases recorded in MindeLine",
-        "Filtro de solicitudes médicas · CIE-10": "Medical request filter · ICD-10",
-        "Prototipo de apoyo para equipo tratante. Datos de ejemplo y no reemplazan la validación clínica oficial.": "Decision-support prototype for the care team. Sample data only; it does not replace clinical review.",
-        "Todos los grupos": "All groups",
-        "Todas las categorías": "All categories",
-        "Todas las subcategorías": "All subcategories",
-        "1. Grupo / capítulo": "1. Group / chapter",
-        "2. Categoría diagnóstica": "2. Diagnostic category",
-        "3. Subcategoría específica": "3. Specific subcategory",
-        "Se muestran {count} registros de ejemplo con un total de {total} casos. Estos recuentos no corresponden a un expediente clínico real.": "Showing {count} sample entries, with {total} cases in total. These counts do not represent real patient records.",
-        "Sin resultados para este filtro. Intenta resetear o elegir otra combinación.": "No results for this filter. Reset or choose another combination.",
-        "Seleccionar paciente para ver historial:": "Select a patient to view their history:",
-        "fecha": "Date",
-        "nivel": "Risk level",
-        "resumen": "Summary",
-        "estado": "Status",
-        "cantidad": "Count",
-        "Evolución por nivel de riesgo para {name}": "Risk-level trends for {name}",
-        "No hay datos suficientes para graficar la evolución. Haz clic en el simulador para registrar una primera alerta.": "There is not enough data to display trends. Use the simulator to record the first alert.",
-        "Pendiente": "Pending",
-        "En Atención": "In progress",
-        "Nivel": "Level",
-        "Hoy": "Today",
-        "Hace 2 días": "2 days ago",
-        "Reciente": "Recent",
-        "Nunca": "Never",
-        "sin síntomas registrados": "no symptoms recorded",
-        "consulta general": "general consultation",
-        "NIVEL A - EMERGENCIA": "🔴 **LEVEL A - EMERGENCY**",
-        "NIVEL B - URGENCIA": "🟠 **LEVEL B - URGENT**",
-        "NIVEL C - PRIORITARIO": "🟡 **LEVEL C - PRIORITY**",
-        "NIVEL D - SEGUIMIENTO": "🔵 **LEVEL D - FOLLOW-UP**",
-        "NIVEL E - RUTINA": "🟢 **LEVEL E - ROUTINE**",
-        "🏠 Dashboard": "🏠 Dashboard",
-        "🧾 Ficha Clínica": "🧾 Patient record",
-        "🚨 Triaje Clínico": "🚨 Clinical triage",
-        "🏥 Enfermería": "🏥 Nursing",
-        "👩‍⚕️ Equipo Tratante": "👩‍⚕️ Care team",
-        "📈 Evolución": "📈 Trends",
-        "🩺 Ficha del paciente": "🩺 Patient record",
-        "📱 Simulador de Mensajes": "📱 Message simulator",
-        "Código": "Code",
-        "Nombre": "Name",
-        "Casos": "Cases",
-        "MindeLine: Ficha Clínica & Triaje Digital": "MindeLine: Clinical Record & Digital Triage",
-        "Urgencia": "Urgency",
-        "Group": "Group",
-        "Category": "Category",
-        "Code": "Code",
-        "Name": "Name",
-        "File change.": "File change.",
-        "En Atencion": "In progress",
-        "Sin medicación registrada.": "No medication recorded.",
-        "No refiere medicación actual.": "Reports no current medication.",
-        "PHQ-9 estimado": "Estimated PHQ-9",
-        "Nivel A": "Level A",
-        "Nivel B": "Level B",
-        "Nivel actual": "Current level",
-        "Grupo": "Group",
-        "Categoría": "Category",
-        "cantidad": "Count",
-        "name": "Name",
-        "fecha": "Date",
-        "nivel": "Risk level",
-        "resumen": "Summary",
-        "estado": "Status",
-        "Evolución por nivel de riesgo para {name}": "Risk-level trends for {name}",
-        "Los casos recibidos por WhatsApp o por el simulador se revisan aquí antes de su derivación.": "Cases received through WhatsApp or the simulator are reviewed here before referral.",
-        "Filtro de solicitudes médicas · CIE-10": "Medical request filter · ICD-10",
-        "Prototipo de apoyo para equipo tratante. Datos de ejemplo y no reemplazan la validación clínica oficial.": "Decision-support prototype for the care team. Sample data only; it does not replace clinical review.",
-        "📱 Simulador de Mensajes": "📱 Message simulator",
-        "Sin antecedentes relevantes cargados.": "No relevant medical history entered.",
-        "Consulta general.": "General consultation.",
-        "Sin medicación registrada.": "No medication recorded.",
-        "Sin síntomas registrados.": "No symptoms recorded.",
-        "Ansiedad generalizada, antecedente de duelo reciente.": "Generalized anxiety; recent bereavement.",
-        "Angustia intensa y sensación de presión torácica.": "Severe distress and a feeling of chest pressure.",
-        "Palpitaciones, insomnio, llanto frecuente, baja energía.": "Palpitations, insomnia, frequent crying, and low energy.",
-        "Sertralina 50 mg 1 vez/día.": "Sertraline 50 mg once daily.",
-        "Hipertensión controlada.": "Controlled hypertension.",
-        "Ansiedad y tensión durante la semana.": "Anxiety and increased tension this week.",
-        "Nerviosismo, irritabilidad, dificultad para concentrarse.": "Nervousness, irritability, and difficulty concentrating.",
-        "Paciente reporta ánimo muy bajo y ausencia de interés en actividades cotidianas.": "Patient reports very low mood and loss of interest in everyday activities.",
-        "Ánimo: muy bajo • Medicación: No • Cita: No puedo asistir": "Mood: very low • Medication: No • Appointment: Unable to attend",
-        "Consulta por ansiedad y aumento de tensión durante la semana.": "Reports anxiety and increased tension this week.",
-        "Ánimo: regular • Medicación: Sí • Cita: Sí, agendada": "Mood: fair • Medication: Yes • Appointment: Scheduled",
-        "Siento mucha angustia y dolor en el pecho, necesito ayuda.": "I feel very anxious and have chest pain. I need help.",
-    },
-}
+# ---------------------------------------------------------------------------
+# Configuración general
+# ---------------------------------------------------------------------------
 
-CURRENT_LANGUAGE = "Español"
-LOGO_PATH = Path(__file__).resolve().parent / "assets" / "mindeline_logo_transparent.png"
+ASSETS = Path(__file__).resolve().parent / "assets"
+LOGO_PATH = ASSETS / "mindeline_logo_transparent.png"
+# Si existe una versión blanca del logo (sobre navy), se usa en la barra lateral.
+LOGO_SIDEBAR = next(
+    (p for p in (ASSETS / "mindeline_logo_white.png", LOGO_PATH) if p.exists()), LOGO_PATH
+)
 
+st.set_page_config(
+    page_title="MindeLine",
+    layout="wide",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else None,
+)
 
-def tr(text, **values):
-    translated = TRANSLATIONS.get(CURRENT_LANGUAGE, {}).get(text, text)
-    return translated.format(**values) if values else translated
-
-
-st.set_page_config(page_title="MindeLine", layout="wide", page_icon=str(LOGO_PATH))
+LANGS = ["Español", "English"]
 if "language" not in st.session_state:
     st.session_state.language = "Español"
-CURRENT_LANGUAGE = st.sidebar.selectbox(
-    "Language / Idioma",
-    ["Español", "English"],
-    index=["Español", "English"].index(st.session_state.language),
-    key="language",
-)
 
-st.markdown(
-    """
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-        html, body, [data-testid="stAppViewContainer"] {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f4fbff 0%, #eef5ff 35%, #f7f9fb 100%);
-        }
+def L(es, en):
+    """Texto de interfaz según el idioma elegido."""
+    return en if st.session_state.get("language") == "English" else es
 
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
-            color: #f8fafc;
-        }
 
-        [data-testid="stSidebar"] .st-emotion-cache-1y4p8pa,
-        [data-testid="stSidebar"] .st-emotion-cache-1v0mbdj,
-        [data-testid="stSidebar"] .st-emotion-cache-16idsys {
-            color: #e2e8f0;
-        }
+# ---------------------------------------------------------------------------
+# Guía de diseño: tokens y estilos
+# ---------------------------------------------------------------------------
 
-        .stTabs [role="tablist"] {
-            background: rgba(255,255,255,0.7);
-            border-radius: 14px;
-            padding: 6px;
-            gap: 8px;
-        }
+# Niveles de triaje → estados clínicos de la guía.
+# clase CSS, etiqueta ES, etiqueta EN, color sólido (barra, punto, gráficos)
+NIVELES = {
+    "A": ("risk", "Emergencia", "Emergency", "#D64545"),
+    "B": ("review", "Urgencia", "Urgent", "#E8913A"),
+    "C": ("noshow", "Prioritario", "Priority", "#E0B93E"),
+    "D": ("silent", "Seguimiento", "Follow-up", "#8C95A5"),
+    "E": ("stable", "Rutina", "Routine", "#3E9E6E"),
+}
+URGENCIA_A_NIVEL = {"alta": "B", "media": "C", "baja": "E"}
 
-        .stTabs [role="tab"] {
-            border-radius: 10px;
-            padding: 0.7rem 1rem;
-            font-weight: 600;
-        }
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600&display=swap');
 
-        .stTabs [role="tab"][aria-selected="true"] {
-            background: linear-gradient(135deg, #2563eb, #0ea5e9);
-            color: white;
-            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.18);
-        }
+:root{
+  --navy-800:#192436; --navy-600:#33425E; --navy-200:#C9D1DE; --navy-100:#E4E9F1; --navy-50:#F1F4F9;
+  --teal-700:#237873; --teal-500:#3FA7A0; --teal-50:#E9F5F4;
+  --canvas:#F4F6FA; --surface:#FFFFFF; --border:#DDE2EA; --border-input:#7E8798;
+  --ink-muted:#5B6475; --ink-disabled:#9AA3B2;
+}
 
-        div[data-testid="stMetric"] {
-            background: rgba(255,255,255,0.8);
-            border: 1px solid rgba(148,163,184,0.22);
-            border-radius: 16px;
-            padding: 0.8rem 1rem;
-            box-shadow: 0 10px 20px rgba(15,23,42,0.04);
-        }
+html, body, [data-testid="stAppViewContainer"], .stApp{
+  font-family:'Inter',sans-serif; background:var(--canvas); color:var(--navy-800);
+}
+header[data-testid="stHeader"]{ background:transparent; }
+#MainMenu, footer{ visibility:hidden; }
+.block-container{ padding-top:2rem; max-width:1280px; }
 
-        .stAlert {
-            border-radius: 16px;
-            border: 1px solid rgba(148,163,184,0.2);
-            box-shadow: 0 12px 18px rgba(15,23,42,0.04);
-        }
+/* Tipografía */
+h1,h2,h3{ font-family:'Montserrat',sans-serif !important; font-weight:600 !important;
+  color:var(--navy-800); letter-spacing:0 !important; }
+h1{ font-size:24px !important; line-height:32px !important; }
+h2{ font-size:20px !important; line-height:28px !important; }
+h3{ font-size:16px !important; line-height:24px !important; }
+p, li, label, .stMarkdown{ font-size:14px; line-height:20px; }
+[data-testid="stCaptionContainer"], .stCaption{ color:var(--ink-muted); font-size:12px; line-height:16px; }
 
-        .stExpander {
-            background: rgba(255,255,255,0.68);
-            border: 1px solid rgba(148,163,184,0.2);
-            border-radius: 16px;
-            padding: 0.2rem 0.5rem;
-        }
+/* Barra lateral */
+[data-testid="stSidebar"]{ background:var(--navy-800); border-right:1px solid var(--navy-600); }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3{ color:#FFFFFF; }
+[data-testid="stSidebar"] label p, [data-testid="stSidebar"] [data-testid="stCaptionContainer"]{ color:var(--navy-200); }
 
-        h1 {
-            background: linear-gradient(135deg, #0f172a, #2563eb);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            letter-spacing: -0.04em;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+/* Pestañas: planas, subrayado teal */
+.stTabs [role="tablist"]{ background:transparent; border-bottom:1px solid var(--border); gap:4px; padding:0; }
+.stTabs [role="tab"]{ border-radius:8px 8px 0 0; padding:.6rem 1rem; font-weight:500; color:var(--ink-muted); }
+.stTabs [role="tab"]:hover{ background:var(--navy-50); color:var(--navy-800); }
+.stTabs [role="tab"][aria-selected="true"]{ color:var(--teal-700); font-weight:600; background:transparent; }
+.stTabs [data-baseweb="tab-highlight"]{ background:var(--teal-700); }
 
-init_db()
+/* Tarjetas: borde, sin sombra, radio 8 */
+div[data-testid="stMetric"], div[data-testid="stExpander"], div[data-testid="stAlert"], .ml-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:none;
+}
+div[data-testid="stMetric"]{ padding:16px; }
+div[data-testid="stMetricValue"]{ font-family:'Montserrat',sans-serif; font-weight:600; font-size:32px; line-height:40px; }
+div[data-testid="stMetricLabel"] p{ color:var(--ink-muted); font-size:12px; }
+.ml-card{ padding:16px; margin-bottom:12px; }
+.ml-card h4{ font-family:'Montserrat',sans-serif; font-weight:600; font-size:16px; line-height:24px; margin:0 0 4px 0; }
+.ml-card .meta{ color:var(--ink-muted); font-size:12px; line-height:16px; }
+.ml-bar{ border-left:4px solid var(--border); }
 
-if "demo_cases" not in st.session_state:
-    st.session_state.demo_cases = [
-        {
-            "id": "WA-101",
-            "nombre": "María González",
-            "telefono": "+56 9 1111 2222",
-            "canal": "WhatsApp",
-            "urgencia": "alta",
-            "estado": "Pendiente",
-            "resumen": "Paciente reporta ánimo muy bajo y ausencia de interés en actividades cotidianas.",
-            "detalle": "Ánimo: muy bajo • Medicación: No • Cita: No puedo asistir",
-        },
-        {
-            "id": "WA-102",
-            "nombre": "Carlos Muñoz",
-            "telefono": "+56 9 3333 4444",
-            "canal": "WhatsApp",
-            "urgencia": "media",
-            "estado": "Revisado",
-            "resumen": "Consulta por ansiedad y aumento de tensión durante la semana.",
-            "detalle": "Ánimo: regular • Medicación: Sí • Cita: Sí, agendada",
-        },
-    ]
+/* Botones */
+.stButton>button, .stFormSubmitButton>button, .stDownloadButton>button, .stLinkButton>a{
+  border-radius:8px; min-height:40px; font-weight:600; font-size:14px; transition:background .15s;
+}
+.stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"], .stButton>button{
+  background:var(--teal-700); color:#FFFFFF; border:1px solid var(--teal-700);
+}
+.stButton>button:hover{ background:#1B605C; border-color:#1B605C; color:#FFFFFF; }
+.stButton>button:active{ background:#154B48; border-color:#154B48; }
+.stButton>button:focus-visible{ outline:2px solid var(--teal-700); outline-offset:2px; }
+.stButton>button:disabled{ background:#EEF1F5; color:var(--ink-disabled); border-color:#EEF1F5; }
+.stFormSubmitButton>button{ background:var(--teal-700); color:#FFFFFF; border:1px solid var(--teal-700); }
+.stFormSubmitButton>button:hover{ background:#1B605C; color:#FFFFFF; }
+
+/* Campos: borde #7E8798, foco 2 px teal */
+.stTextInput input, .stTextArea textarea, .stNumberInput input{ border-radius:8px; }
+.stTextInput [data-baseweb="input"], .stTextArea [data-baseweb="textarea"],
+.stNumberInput [data-baseweb="input"], .stSelectbox [data-baseweb="select"]>div{
+  border:1px solid var(--border-input); border-radius:8px;
+}
+.stTextInput [data-baseweb="input"]:focus-within, .stTextArea [data-baseweb="textarea"]:focus-within,
+.stNumberInput [data-baseweb="input"]:focus-within{ border:2px solid var(--teal-700); }
+[data-testid="stSidebar"] .stTextInput [data-baseweb="input"],
+[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"]>div{ border-color:var(--navy-600); }
+
+/* Badges clínicos: radio completo, 24 px, Inter 600 12 px */
+.ml-badge{ display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 8px;
+  border-radius:999px; font-size:12px; font-weight:600; line-height:16px; white-space:nowrap; }
+.ml-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+.ml-risk{ background:#FCEBEB; color:#A12C2C; }   .ml-risk .ml-dot{ background:#D64545; }
+.ml-review{ background:#FDF0E2; color:#8C4A0E; } .ml-review .ml-dot{ background:#E8913A; }
+.ml-noshow{ background:#FBF4D9; color:#6E5410; } .ml-noshow .ml-dot{ background:#E0B93E; }
+.ml-silent{ background:#EEF1F5; color:#4A5366; } .ml-silent .ml-dot{ background:#8C95A5; }
+.ml-stable{ background:#E5F3EC; color:#1E6443; } .ml-stable .ml-dot{ background:#3E9E6E; }
+.ml-bar-risk{ border-left-color:#D64545; } .ml-bar-review{ border-left-color:#E8913A; }
+.ml-bar-noshow{ border-left-color:#E0B93E; } .ml-bar-silent{ border-left-color:#8C95A5; }
+.ml-bar-stable{ border-left-color:#3E9E6E; }
+
+/* Aviso de demo */
+.ml-demo{ background:var(--teal-50); border:1px solid var(--teal-500); border-radius:8px;
+  padding:8px 12px; color:var(--navy-800); font-size:12px; line-height:16px; margin-bottom:16px; }
+
+@media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+</style>
+"""
+
+
+def badge_nivel(nivel):
+    clase, es, en, _ = NIVELES.get(nivel, ("silent", nivel, nivel, "#8C95A5"))
+    return f"<span class='ml-badge ml-{clase}'><span class='ml-dot'></span>{L(es, en)}</span>"
+
+
+def etiqueta_nivel(nivel):
+    _, es, en, _ = NIVELES.get(nivel, ("silent", nivel, nivel, ""))
+    return f"{L('Nivel', 'Level')} {nivel} · {L(es, en)}"
+
+
+def card(html, nivel=None):
+    barra = ""
+    if nivel in NIVELES:
+        barra = f" ml-bar ml-bar-{NIVELES[nivel][0]}"
+    st.markdown(f"<div class='ml-card{barra}'>{html}</div>", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Textos y datos de demostración
+# ---------------------------------------------------------------------------
+
+ESTADOS = {
+    "Pendiente": ("Pendiente", "Pending"),
+    "En Atencion": ("En atención", "In progress"),
+    "En Atención": ("En atención", "In progress"),
+    "Revisado": ("Revisado", "Reviewed"),
+}
+
+
+def estado_txt(estado):
+    es, en = ESTADOS.get(estado, (estado, estado))
+    return L(es, en)
+
+
+# Traducción de los textos sintéticos de las fichas y la CIE-10.
+DATA_EN = {
+    "Femenino": "Female", "Masculino": "Male", "No binario": "Non-binary",
+    "Prefiero no decirlo": "Prefer not to say", "Sí": "Yes", "No": "No",
+    "Hoy": "Today", "Hace 2 días": "2 days ago", "Hace 1 semana": "1 week ago",
+    "Hace 3 días": "3 days ago", "Reciente": "Recent", "Nunca": "Never", "Ahora": "Now",
+    "Ansiedad generalizada, antecedente de duelo reciente.": "Generalized anxiety; recent bereavement.",
+    "Angustia intensa y sensación de presión torácica.": "Severe distress and a feeling of chest pressure.",
+    "Palpitaciones, insomnio, llanto frecuente, baja energía.": "Palpitations, insomnia, frequent crying, and low energy.",
+    "Sertralina 50 mg 1 vez/día.": "Sertraline 50 mg once daily.",
+    "Hipertensión controlada.": "Controlled hypertension.",
+    "Ansiedad y tensión durante la semana.": "Anxiety and increased tension this week.",
+    "Nerviosismo, irritabilidad, dificultad para concentrarse.": "Nervousness, irritability, and difficulty concentrating.",
+    "No refiere medicación actual.": "Reports no current medication.",
+    "Episodios descritos como crisis de pánico y preocupación por que vuelvan a ocurrir.": "Episodes described as panic attacks and worry that they will return.",
+    "Quiere aprender a manejar episodios de miedo intenso.": "Wants to learn to manage episodes of intense fear.",
+    "Palpitaciones y sensación de alarma durante episodios de angustia.": "Palpitations and a sense of alarm during episodes of distress.",
+    "Ánimo bajo y pérdida de interés en actividades durante las últimas semanas.": "Low mood and loss of interest in activities over recent weeks.",
+    "Consulta por cambios de ánimo y descanso irregular.": "Reports mood changes and irregular rest.",
+    "Baja energía, menos interés en actividades y dificultad para dormir.": "Low energy, less interest in activities, and difficulty sleeping.",
+    "Sin antecedentes relevantes cargados.": "No relevant medical history entered.",
+    "Consulta general.": "General consultation.",
+    "Sin síntomas registrados.": "No symptoms recorded.",
+    "Sin medicación registrada.": "No medication recorded.",
+    "Paciente reporta ánimo muy bajo y ausencia de interés en actividades cotidianas.": "Patient reports very low mood and loss of interest in everyday activities.",
+    "Ánimo: muy bajo • Medicación: No • Cita: No puedo asistir": "Mood: very low • Medication: No • Appointment: Unable to attend",
+    "Consulta por ansiedad y aumento de tensión durante la semana.": "Reports anxiety and increased tension this week.",
+    "Ánimo: regular • Medicación: Sí • Cita: Sí, agendada": "Mood: fair • Medication: Yes • Appointment: Scheduled",
+    "Trastornos mentales y del comportamiento": "Mental and behavioral disorders",
+    "Trastornos del ánimo": "Mood disorders",
+    "Depresión mayor": "Major depressive disorder",
+    "Trastorno depresivo recurrente": "Recurrent depressive disorder",
+    "Trastornos del ánimo persistentes": "Persistent mood disorders",
+    "Trastornos neuróticos, relacionados con estrés y somatomorfos": "Neurotic, stress-related, and somatoform disorders",
+    "Trastornos de ansiedad": "Anxiety disorders",
+    "Reacciones ante estrés severo": "Reactions to severe stress",
+    "Otros trastornos neuróticos": "Other neurotic disorders",
+    "Síntomas, signos y hallazgos anormales": "Symptoms, signs, and abnormal findings",
+    "Síntomas del sistema nervioso y del organismo": "Symptoms involving the nervous system and body",
+    "Síntomas de ansiedad": "Symptoms of anxiety",
+    "Síntomas y signos del sistema nervioso": "Symptoms and signs involving the nervous system",
+}
+
+
+def td(texto):
+    """Traduce datos sintéticos; los textos escritos por el usuario se dejan tal cual."""
+    if st.session_state.get("language") == "English":
+        return DATA_EN.get(texto, texto)
+    return texto
+
 
 CIE10_DATA = [
     {
@@ -398,854 +283,869 @@ CIE10_DATA = [
     },
 ]
 
-VIDEO_RESOURCES = [
+PACIENTES_INICIALES = {
+    "María González": {
+        "edad": 32, "genero": "Femenino",
+        "antecedentes": "Ansiedad generalizada, antecedente de duelo reciente.",
+        "motivo": "Angustia intensa y sensación de presión torácica.",
+        "sintomas": "Palpitaciones, insomnio, llanto frecuente, baja energía.",
+        "tratamiento": "Sertralina 50 mg 1 vez/día.", "red_apoyo": "Sí",
+        "ultima_revision": "Hoy", "riesgo": "B",
+    },
+    "Carlos Muñoz": {
+        "edad": 41, "genero": "Masculino",
+        "antecedentes": "Hipertensión controlada.",
+        "motivo": "Ansiedad y tensión durante la semana.",
+        "sintomas": "Nerviosismo, irritabilidad, dificultad para concentrarse.",
+        "tratamiento": "No refiere medicación actual.", "red_apoyo": "Sí",
+        "ultima_revision": "Hace 2 días", "riesgo": "C",
+    },
+    "Ana Silva": {
+        "edad": 28, "genero": "Femenino",
+        "antecedentes": "Episodios descritos como crisis de pánico y preocupación por que vuelvan a ocurrir.",
+        "motivo": "Quiere aprender a manejar episodios de miedo intenso.",
+        "sintomas": "Palpitaciones y sensación de alarma durante episodios de angustia.",
+        "tratamiento": "No refiere medicación actual.", "red_apoyo": "Sí",
+        "ultima_revision": "Hace 1 semana", "riesgo": "C",
+    },
+    "Pedro Morales": {
+        "edad": 36, "genero": "Masculino",
+        "antecedentes": "Ánimo bajo y pérdida de interés en actividades durante las últimas semanas.",
+        "motivo": "Consulta por cambios de ánimo y descanso irregular.",
+        "sintomas": "Baja energía, menos interés en actividades y dificultad para dormir.",
+        "tratamiento": "No refiere medicación actual.", "red_apoyo": "Sí",
+        "ultima_revision": "Hace 3 días", "riesgo": "C",
+    },
+}
+
+CASOS_INICIALES = [
+    {
+        "id": "WA-101", "nombre": "María González", "telefono": "+56 9 1111 2222",
+        "canal": "WhatsApp", "urgencia": "alta", "estado": "Pendiente",
+        "resumen": "Paciente reporta ánimo muy bajo y ausencia de interés en actividades cotidianas.",
+        "detalle": "Ánimo: muy bajo • Medicación: No • Cita: No puedo asistir",
+    },
+    {
+        "id": "WA-102", "nombre": "Carlos Muñoz", "telefono": "+56 9 3333 4444",
+        "canal": "WhatsApp", "urgencia": "media", "estado": "Revisado",
+        "resumen": "Consulta por ansiedad y aumento de tensión durante la semana.",
+        "detalle": "Ánimo: regular • Medicación: Sí • Cita: Sí, agendada",
+    },
+]
+
+# Recursos educativos: (es, en) en cada campo de texto.
+RECURSOS = [
     {
         "keywords": ("ansiedad", "anxiety", "angustia"),
-        "title_es": "Ansiedad",
-        "title_en": "Anxiety",
-        "description_es": "Explicaciones breves sobre síntomas, ansiedad generalizada y estrategias de regulación.",
-        "description_en": "Short explanations about symptoms, generalized anxiety, and grounding strategies.",
-        "support_es": [
-            "Prueba una pausa breve: observa lo que ocurre a tu alrededor y vuelve la atención a una sensación que te resulte cómoda.",
-            "Si te ayuda, respira despacio y sin forzar; detente si notas más malestar.",
-            "Anota cuándo aparece la angustia y qué estaba pasando para conversarlo con tu equipo de salud.",
-            "No cambies ni suspendas medicamentos sin hablar con quien los indicó.",
-        ],
-        "support_en": [
-            "Try a brief pause: notice what is around you and bring your attention to a sensation that feels comfortable.",
-            "If helpful, breathe slowly without forcing it; stop if it increases your discomfort.",
-            "Note when distress appears and what was happening so you can discuss it with your care team.",
-            "Do not change or stop medication without speaking with the prescriber.",
-        ],
+        "title": ("Ansiedad", "Anxiety"),
+        "desc": ("Explicaciones breves sobre síntomas, ansiedad generalizada y estrategias de regulación.",
+                 "Short explanations about symptoms, generalized anxiety, and grounding strategies."),
+        "support": (
+            ["Prueba una pausa breve: observa lo que ocurre a tu alrededor y vuelve la atención a una sensación que te resulte cómoda.",
+             "Si te ayuda, respira despacio y sin forzar; detente si notas más malestar.",
+             "Anota cuándo aparece la angustia y qué estaba pasando para conversarlo con tu equipo de salud.",
+             "No cambies ni suspendas medicamentos sin hablar con quien los indicó."],
+            ["Try a brief pause: notice what is around you and bring your attention to a sensation that feels comfortable.",
+             "If helpful, breathe slowly without forcing it; stop if it increases your discomfort.",
+             "Note when distress appears and what was happening so you can discuss it with your care team.",
+             "Do not change or stop medication without speaking with the prescriber."],
+        ),
         "query": "ansiedad salud mental explicacion",
     },
     {
         "keywords": ("panico", "ataque de panico", "panic attack"),
-        "title_es": "Crisis de pánico",
-        "title_en": "Panic attacks",
-        "description_es": "Información general para comprender las crisis de pánico y conversar sobre ellas con un profesional.",
-        "description_en": "General information to understand panic attacks and discuss them with a professional.",
-        "support_es": [
-            "Si te sientes a salvo, busca un lugar tranquilo y recuerda que puedes pedir compañía a alguien de confianza.",
-            "Intenta describir lo que notas sin juzgarlo; no es necesario forzar la respiración ni hacer ejercicios que te incomoden.",
-            "Si es la primera vez, los síntomas son intensos o tienes dolor de pecho/dificultad para respirar, busca evaluación médica.",
-        ],
-        "support_en": [
-            "If you feel safe, find a calm place and remember you can ask someone you trust to stay with you.",
-            "Try describing what you notice without judging it; you do not need to force your breathing or do exercises that feel uncomfortable.",
-            "If this is the first episode, symptoms are severe, or you have chest pain or trouble breathing, seek medical assessment.",
-        ],
+        "title": ("Crisis de pánico", "Panic attacks"),
+        "desc": ("Información general para comprender las crisis de pánico y conversar sobre ellas con un profesional.",
+                 "General information to understand panic attacks and discuss them with a professional."),
+        "support": (
+            ["Si te sientes a salvo, busca un lugar tranquilo y recuerda que puedes pedir compañía a alguien de confianza.",
+             "Intenta describir lo que notas sin juzgarlo; no es necesario forzar la respiración ni hacer ejercicios que te incomoden.",
+             "Si es la primera vez, los síntomas son intensos o tienes dolor de pecho/dificultad para respirar, busca evaluación médica."],
+            ["If you feel safe, find a calm place and remember you can ask someone you trust to stay with you.",
+             "Try describing what you notice without judging it; you do not need to force your breathing or do exercises that feel uncomfortable.",
+             "If this is the first episode, symptoms are severe, or you have chest pain or trouble breathing, seek medical assessment."],
+        ),
         "query": "crisis de panico salud mental orientacion",
     },
     {
         "keywords": ("depres", "animo bajo", "perdida de interes", "low mood", "loss of interest"),
-        "title_es": "Depresión",
-        "title_en": "Depression",
-        "description_es": "Recursos orientativos para reconocer síntomas depresivos y señales de alerta.",
-        "description_en": "Orientation resources to recognize depressive symptoms and warning signs.",
-        "support_es": [
-            "Cuando cueste empezar, intenta elegir una actividad pequeña y posible para hoy, sin exigirte resolverlo todo.",
-            "Cuéntale a alguien de confianza cómo te has sentido y acuerda un momento para hablar con tu equipo de salud.",
-            "No cambies ni suspendas medicamentos sin hablar con quien los indicó.",
-        ],
-        "support_en": [
-            "When getting started feels difficult, try choosing one small, manageable activity for today.",
-            "Tell someone you trust how you have been feeling and arrange a time to speak with your care team.",
-            "Do not change or stop medication without speaking with the prescriber.",
-        ],
+        "title": ("Depresión", "Depression"),
+        "desc": ("Recursos orientativos para reconocer síntomas depresivos y señales de alerta.",
+                 "Orientation resources to recognize depressive symptoms and warning signs."),
+        "support": (
+            ["Cuando cueste empezar, intenta elegir una actividad pequeña y posible para hoy, sin exigirte resolverlo todo.",
+             "Cuéntale a alguien de confianza cómo te has sentido y acuerda un momento para hablar con tu equipo de salud.",
+             "No cambies ni suspendas medicamentos sin hablar con quien los indicó."],
+            ["When getting started feels difficult, try choosing one small, manageable activity for today.",
+             "Tell someone you trust how you have been feeling and arrange a time to speak with your care team.",
+             "Do not change or stop medication without speaking with the prescriber."],
+        ),
         "query": "depresion salud mental explicacion",
     },
     {
-        "keywords": (
-            "estres", "stress", "sueño", "sueno", "sleep", "insomnio",
-            "dificultad para dormir", "descanso irregular", "problemas de sueño",
+        "keywords": ("estres", "stress", "sueño", "sueno", "sleep", "insomnio",
+                     "dificultad para dormir", "descanso irregular", "problemas de sueño"),
+        "title": ("Estrés y sueño", "Stress and sleep"),
+        "desc": ("Videos para acompañar la identificación del estrés y su impacto en el sueño y la atención.",
+                 "Videos to support identifying stress and its impact on sleep and attention."),
+        "support": (
+            ["Observa qué situaciones aumentan el estrés y conversa con tu equipo sobre cambios que sean realistas para ti.",
+             "Si es posible, mantén horarios de descanso regulares y reserva un momento tranquilo antes de dormir.",
+             "Si el problema persiste o afecta tu día a día, coméntalo con un profesional de salud."],
+            ["Notice which situations increase stress and discuss realistic changes with your care team.",
+             "If possible, keep regular rest times and set aside a quiet period before bed.",
+             "If the problem continues or affects daily life, discuss it with a health professional."],
         ),
-        "title_es": "Estrés y sueño",
-        "title_en": "Stress and sleep",
-        "description_es": "Videos para acompañar la identificación del estrés y su impacto en el sueño y la atención.",
-        "description_en": "Videos to support identifying stress and its impact on sleep and attention.",
-        "support_es": [
-            "Observa qué situaciones aumentan el estrés y conversa con tu equipo sobre cambios que sean realistas para ti.",
-            "Si es posible, mantén horarios de descanso regulares y reserva un momento tranquilo antes de dormir.",
-            "Si el problema persiste o afecta tu día a día, coméntalo con un profesional de salud.",
-        ],
-        "support_en": [
-            "Notice which situations increase stress and discuss realistic changes with your care team.",
-            "If possible, keep regular rest times and set aside a quiet period before bed.",
-            "If the problem continues or affects daily life, discuss it with a health professional.",
-        ],
         "query": "estres ansiedad sueño salud mental",
     },
     {
-        "keywords": (
-            "duelo", "grief", "bereavement", "perdida de un ser querido",
-            "fallecimiento", "muerte de un familiar",
+        "keywords": ("duelo", "grief", "bereavement", "perdida de un ser querido",
+                     "fallecimiento", "muerte de un familiar"),
+        "title": ("Duelo y adaptación", "Grief and adaptation"),
+        "desc": ("Material orientativo para sostener procesos de duelo, pérdida y reencuadre emocional.",
+                 "Orientation material to support grief, loss, and emotional reframing processes."),
+        "support": (
+            ["El duelo es distinto para cada persona; no hay un plazo único ni una forma correcta de vivirlo.",
+             "Busca compañía de alguien de confianza y comparte qué tipo de apoyo te sería útil.",
+             "Si el dolor se vuelve abrumador o te impide realizar actividades cotidianas, pide apoyo a un profesional."],
+            ["Grief is different for everyone; there is no single timeline or right way to experience it.",
+             "Reach out to someone you trust and share what kind of support would help.",
+             "If distress feels overwhelming or keeps you from daily activities, seek support from a professional."],
         ),
-        "title_es": "Duelo y adaptación",
-        "title_en": "Grief and adaptation",
-        "description_es": "Material orientativo para sostener procesos de duelo, pérdida y reencuadre emocional.",
-        "description_en": "Orientation material to support grief, loss, and emotional reframing processes.",
-        "support_es": [
-            "El duelo es distinto para cada persona; no hay un plazo único ni una forma correcta de vivirlo.",
-            "Busca compañía de alguien de confianza y comparte qué tipo de apoyo te sería útil.",
-            "Si el dolor se vuelve abrumador o te impide realizar actividades cotidianas, pide apoyo a un profesional.",
-        ],
-        "support_en": [
-            "Grief is different for everyone; there is no single timeline or right way to experience it.",
-            "Reach out to someone you trust and share what kind of support would help.",
-            "If distress feels overwhelming or keeps you from daily activities, seek support from a professional.",
-        ],
         "query": "duelo salud mental explicacion",
     },
     {
         "keywords": ("autoestima", "autoconfianza", "self esteem", "self confidence"),
-        "title_es": "Autoestima y autoconfianza",
-        "title_en": "Self-esteem and self-confidence",
-        "description_es": "Ideas de reflexión sobre autovaloración, autocrítica y búsqueda de apoyo.",
-        "description_en": "Reflection ideas about self-worth, self-criticism, and seeking support.",
-        "support_es": [
-            "Observa cómo te hablas cuando algo no resulta y prueba describir la situación con palabras más amables y realistas.",
-            "Anota una acción pequeña que hayas logrado hoy, sin compararte con otras personas.",
-            "Si la autocrítica afecta tu bienestar, puedes conversarlo con un profesional de salud mental.",
-        ],
-        "support_en": [
-            "Notice how you speak to yourself when something does not go as planned and try a kinder, more realistic description.",
-            "Note one small thing you managed today without comparing yourself to others.",
-            "If self-criticism affects your wellbeing, consider discussing it with a mental health professional.",
-        ],
+        "title": ("Autoestima y autoconfianza", "Self-esteem and self-confidence"),
+        "desc": ("Ideas de reflexión sobre autovaloración, autocrítica y búsqueda de apoyo.",
+                 "Reflection ideas about self-worth, self-criticism, and seeking support."),
+        "support": (
+            ["Observa cómo te hablas cuando algo no resulta y prueba describir la situación con palabras más amables y realistas.",
+             "Anota una acción pequeña que hayas logrado hoy, sin compararte con otras personas.",
+             "Si la autocrítica afecta tu bienestar, puedes conversarlo con un profesional de salud mental."],
+            ["Notice how you speak to yourself when something does not go as planned and try a kinder, more realistic description.",
+             "Note one small thing you managed today without comparing yourself to others.",
+             "If self-criticism affects your wellbeing, consider discussing it with a mental health professional."],
+        ),
         "query": "autoestima salud mental apoyo psicologico",
     },
     {
         "keywords": ("trauma", "estres postraumatico", "post traumatic", "ptsd", "experiencia dificil"),
-        "title_es": "Estrés tras experiencias difíciles",
-        "title_en": "Stress after difficult experiences",
-        "description_es": "Material general sobre reacciones al estrés y cómo buscar apoyo de manera segura.",
-        "description_en": "General material about stress responses and how to seek support safely.",
-        "support_es": [
-            "No tienes que contar detalles de una experiencia difícil si no te sientes preparado/a.",
-            "Identifica a una persona o profesional con quien te sientas seguro/a para pedir apoyo.",
-            "Evita exponerte por tu cuenta a recuerdos o ejercicios intensos; solicita orientación profesional.",
-        ],
-        "support_en": [
-            "You do not have to share details of a difficult experience if you do not feel ready.",
-            "Identify a person or professional you feel safe with to ask for support.",
-            "Avoid confronting memories or intense exercises on your own; ask a professional for guidance.",
-        ],
+        "title": ("Estrés tras experiencias difíciles", "Stress after difficult experiences"),
+        "desc": ("Material general sobre reacciones al estrés y cómo buscar apoyo de manera segura.",
+                 "General material about stress responses and how to seek support safely."),
+        "support": (
+            ["No tienes que contar detalles de una experiencia difícil si no te sientes preparado/a.",
+             "Identifica a una persona o profesional con quien te sientas seguro/a para pedir apoyo.",
+             "Evita exponerte por tu cuenta a recuerdos o ejercicios intensos; solicita orientación profesional."],
+            ["You do not have to share details of a difficult experience if you do not feel ready.",
+             "Identify a person or professional you feel safe with to ask for support.",
+             "Avoid confronting memories or intense exercises on your own; ask a professional for guidance."],
+        ),
         "query": "estres trauma salud mental apoyo profesional",
     },
     {
         "keywords": ("toc", "obses", "compuls", "ocd", "pensamientos repetitivos", "revisar varias veces", "rituales"),
-        "title_es": "Trastorno obsesivo-compulsivo",
-        "title_en": "Obsessive-compulsive disorder",
-        "description_es": "Referencias para entender pensamientos obsesivos, compulsiones y cómo pedir apoyo.",
-        "description_en": "References to understand obsessive thoughts, compulsions, and how to seek support.",
-        "support_es": [
-            "Anota qué situaciones te preocupan y qué impacto tienen, para compartirlo con un profesional.",
-            "Pide orientación a un profesional de salud mental; evita iniciar por tu cuenta cambios o ejercicios que te generen angustia.",
-            "No cambies ni suspendas medicamentos sin hablar con quien los indicó.",
-        ],
-        "support_en": [
-            "Note which situations concern you and how they affect you, so you can share this with a professional.",
-            "Ask a mental health professional for guidance; avoid starting changes or exercises that cause distress on your own.",
-            "Do not change or stop medication without speaking with the prescriber.",
-        ],
+        "title": ("Trastorno obsesivo-compulsivo", "Obsessive-compulsive disorder"),
+        "desc": ("Referencias para entender pensamientos obsesivos, compulsiones y cómo pedir apoyo.",
+                 "References to understand obsessive thoughts, compulsions, and how to seek support."),
+        "support": (
+            ["Anota qué situaciones te preocupan y qué impacto tienen, para compartirlo con un profesional.",
+             "Pide orientación a un profesional de salud mental; evita iniciar por tu cuenta cambios o ejercicios que te generen angustia.",
+             "No cambies ni suspendas medicamentos sin hablar con quien los indicó."],
+            ["Note which situations concern you and how they affect you, so you can share this with a professional.",
+             "Ask a mental health professional for guidance; avoid starting changes or exercises that cause distress on your own.",
+             "Do not change or stop medication without speaking with the prescriber."],
+        ),
         "query": "TOC salud mental explicacion",
     },
 ]
 
+ANIMOS = [
+    ("😄", "Muy bien", "Very good"), ("🙂", "Bien", "Good"), ("😐", "Regular", "Fair"),
+    ("😟", "Bajo", "Low"), ("😢", "Muy bajo", "Very low"),
+]
+
 
 def normalizar_texto(texto):
-    texto_normalizado = unicodedata.normalize("NFKD", texto.casefold())
-    return "".join(caracter for caracter in texto_normalizado if not unicodedata.combining(caracter))
+    texto_normalizado = unicodedata.normalize("NFKD", str(texto).casefold())
+    return "".join(c for c in texto_normalizado if not unicodedata.combining(c))
 
 
-st.sidebar.header(tr("🔐 Perfil de demostración"))
-perfil_demo = st.sidebar.selectbox(
-    tr("Ver la experiencia como"),
-    ["Paciente", "Enfermería", "Equipo tratante"],
-    format_func=tr,
-)
-st.sidebar.caption(tr("Selector de demo; no es inicio de sesión ni control de acceso."))
+# ---------------------------------------------------------------------------
+# Estado de sesión
+# ---------------------------------------------------------------------------
 
-if perfil_demo == "Paciente":
-    logo_col, title_col = st.columns([1, 4], vertical_alignment="center")
-    logo_col.image(str(LOGO_PATH), width=110)
-    with title_col:
-        if CURRENT_LANGUAGE == "English":
-            st.title("Your Wellbeing Space")
-            st.caption("Share an update and review your information in this demo profile.")
-        else:
-            st.title("Tu espacio de bienestar")
-            st.caption("Comparte una actualización y consulta la información de tu ficha de demostración.")
-else:
-    logo_col, title_col = st.columns([1, 4], vertical_alignment="center")
-    logo_col.image(str(LOGO_PATH), width=110)
-    with title_col:
-        st.title(tr("MindeLine: Ficha Clínica & Triaje Digital"))
-        st.caption(tr("Plataforma de Asistencia Clínica en Tiempo Real | Protocolos Algorítmicos A-E"))
+init_db()
 
-if perfil_demo != "Paciente":
-    st.markdown(
-        f"""
-        <div style="margin: 0 0 1.2rem 0; padding: 1.2rem 1.4rem; border-radius: 18px; background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(14,165,233,0.12)); border: 1px solid rgba(59,130,246,0.15);">
-            <div style="font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: #2563eb; font-weight: 700;">{tr("Resumen ejecutivo")}</div>
-            <div style="margin-top: 0.5rem; font-size: 1.05rem; color: #0f172a; font-weight: 600;">{tr("Panel clínico para priorización de riesgo, apoyo enfermero y coordinación del equipo tratante.")}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-flujos_demo = {
-    "Paciente": (
-        "Tu espacio de acompañamiento",
-        "Comparte cómo te sientes mediante el simulador de mensajes. Si necesitas ayuda inmediata, "
-        "contacta los servicios de emergencia locales o a tu equipo de salud.",
-        ["1. Compartir una actualización", "2. El equipo revisa la solicitud", "3. Recibir seguimiento"],
-    ),
-    "Enfermería": (
-        "Flujo de recepción y acompañamiento",
-        "Revisa la bandeja, identifica solicitudes pendientes y marca cada caso cuando haya sido revisado.",
-        ["1. Revisar casos entrantes", "2. Tomar o marcar casos", "3. Derivar al equipo tratante cuando corresponda"],
-    ),
-    "Equipo tratante": (
-        "Flujo de revisión clínica",
-        "Consulta la ficha, revisa alertas y utiliza los filtros de apoyo como referencia; valida siempre las decisiones clínicamente.",
-        ["1. Revisar ficha e historial", "2. Evaluar alertas priorizadas", "3. Registrar seguimiento en la ficha"],
-    ),
-}
-titulo_flujo, descripcion_flujo, pasos_flujo = flujos_demo[perfil_demo]
-st.markdown(f"### {tr(titulo_flujo)}")
-st.caption(tr(descripcion_flujo))
-pasos_cols = st.columns(len(pasos_flujo))
-for columna, paso in zip(pasos_cols, pasos_flujo):
-    columna.markdown(
-        f"<div style='height:100%;padding:0.9rem 1rem;border:1px solid rgba(148,163,184,.25);"
-        f"border-radius:14px;background:rgba(255,255,255,.72);font-weight:600'>{tr(paso)}</div>",
-        unsafe_allow_html=True,
-    )
-st.caption(tr("Prototipo de demostración con datos sintéticos. No usar para decisiones clínicas ni datos reales."))
-
+if "demo_cases" not in st.session_state:
+    st.session_state.demo_cases = [dict(c) for c in CASOS_INICIALES]
 if "pacientes" not in st.session_state:
-    st.session_state.pacientes = {
-        "María González": {
-            "edad": 32,
-            "genero": "Femenino",
-            "antecedentes": "Ansiedad generalizada, antecedente de duelo reciente.",
-            "motivo": "Angustia intensa y sensación de presión torácica.",
-            "sintomas": "Palpitaciones, insomnio, llanto frecuente, baja energía.",
-            "tratamiento": "Sertralina 50 mg 1 vez/día.",
-            "red_apoyo": "Sí",
-            "ultima_revision": "Hoy",
-            "riesgo": "B",
-        },
-        "Carlos Muñoz": {
-            "edad": 41,
-            "genero": "Masculino",
-            "antecedentes": "Hipertensión controlada.",
-            "motivo": "Ansiedad y tensión durante la semana.",
-            "sintomas": "Nerviosismo, irritabilidad, dificultad para concentrarse.",
-            "tratamiento": "No refiere medicación actual.",
-            "red_apoyo": "Sí",
-            "ultima_revision": "Hace 2 días",
-            "riesgo": "C",
-        },
-    }
-
-perfiles_demo_adicionales = {
-    "Ana Silva": {
-        "edad": 28,
-        "genero": "Femenino",
-        "antecedentes": "Episodios descritos como crisis de pánico y preocupación por que vuelvan a ocurrir.",
-        "motivo": "Quiere aprender a manejar episodios de miedo intenso.",
-        "sintomas": "Palpitaciones y sensación de alarma durante episodios de angustia.",
-        "tratamiento": "No refiere medicación actual.",
-        "red_apoyo": "Sí",
-        "ultima_revision": "Hace 1 semana",
-        "riesgo": "C",
-    },
-    "Pedro Morales": {
-        "edad": 36,
-        "genero": "Masculino",
-        "antecedentes": "Ánimo bajo y pérdida de interés en actividades durante las últimas semanas.",
-        "motivo": "Consulta por cambios de ánimo y descanso irregular.",
-        "sintomas": "Baja energía, menos interés en actividades y dificultad para dormir.",
-        "tratamiento": "No refiere medicación actual.",
-        "red_apoyo": "Sí",
-        "ultima_revision": "Hace 3 días",
-        "riesgo": "C",
-    },
-}
-
-for nombre_demo, perfil_demo_sintetico in perfiles_demo_adicionales.items():
-    st.session_state.pacientes.setdefault(nombre_demo, perfil_demo_sintetico)
+    st.session_state.pacientes = {k: dict(v) for k, v in PACIENTES_INICIALES.items()}
 
 
-def perfil_base(nombre):
-    base = {
-        "edad": 30,
-        "genero": "Femenino",
+def perfil_base():
+    return {
+        "edad": 30, "genero": "Femenino",
         "antecedentes": "Sin antecedentes relevantes cargados.",
-        "motivo": "Consulta general.",
-        "sintomas": "Sin síntomas registrados.",
-        "tratamiento": "Sin medicación registrada.",
-        "red_apoyo": "Sí",
-        "ultima_revision": "Nunca",
-        "riesgo": "E",
+        "motivo": "Consulta general.", "sintomas": "Sin síntomas registrados.",
+        "tratamiento": "Sin medicación registrada.", "red_apoyo": "Sí",
+        "ultima_revision": "Nunca", "riesgo": "E",
     }
-    return st.session_state.pacientes.get(nombre, base)
 
 
-if perfil_demo == "Paciente":
-    st.sidebar.header("⚙️ Configuración del simulador" if CURRENT_LANGUAGE == "Español" else "⚙️ Simulator settings")
-else:
-    st.sidebar.header(tr("⚙️ Configuración del Sistema"))
-groq_key = st.sidebar.text_input(tr("Groq API Key"), type="password", value="")
+# ---------------------------------------------------------------------------
+# Barra lateral: navegación y configuración
+# ---------------------------------------------------------------------------
 
-st.sidebar.markdown("---")
-if perfil_demo == "Paciente":
-    st.sidebar.header("👤 Perfil de paciente demo" if CURRENT_LANGUAGE == "Español" else "👤 Demo patient profile")
-else:
-    st.sidebar.header(tr("👤 Selección de Paciente"))
+st.markdown(CSS, unsafe_allow_html=True)
 
-opciones_pacientes = [
-    "María González",
-    "Carlos Muñoz",
-    "Ana Silva",
-    "Pedro Morales",
-    "➕ Agregar Nuevo Paciente",
-]
-paciente_seleccionado = st.sidebar.selectbox(
-    tr("Paciente para la prueba"),
+if LOGO_SIDEBAR.exists():
+    st.logo(str(LOGO_SIDEBAR), size="large")
+
+st.sidebar.selectbox("Language / Idioma", LANGS, key="language")
+
+PERFILES = {
+    "Paciente": ("Paciente", "Patient"),
+    "Enfermería": ("Enfermería", "Nursing"),
+    "Equipo tratante": ("Equipo tratante", "Care team"),
+}
+perfil_demo = st.sidebar.selectbox(
+    L("Ver la experiencia como", "View the experience as"),
+    list(PERFILES),
+    format_func=lambda p: L(*PERFILES[p]),
+)
+st.sidebar.caption(L(
+    "Selector de demo: no es inicio de sesión ni control de acceso.",
+    "Demo selector: this is not a login or access control.",
+))
+
+NUEVO = "__nuevo__"
+opciones_pacientes = list(PACIENTES_INICIALES) + [NUEVO]
+paciente_sel = st.sidebar.selectbox(
+    L("Paciente de prueba", "Demo patient"),
     opciones_pacientes,
-    format_func=tr,
+    format_func=lambda p: L("Agregar nuevo paciente", "Add new patient") if p == NUEVO else p,
     key="paciente_seleccionado",
 )
-
-if paciente_seleccionado == "➕ Agregar Nuevo Paciente":
+if paciente_sel == NUEVO:
     nombre_paciente = st.sidebar.text_input(
-        tr("Nombre y Apellido del Nuevo Paciente"), tr("Juan Pérez")
-    )
+        L("Nombre y apellido del nuevo paciente", "New patient's full name"),
+        value=L("Juan Pérez", "Juan Perez"),
+    ).strip()
+    if not nombre_paciente:
+        st.sidebar.warning(L("Ingresa un nombre para continuar.", "Enter a name to continue."))
+        st.stop()
 else:
-    nombre_paciente = paciente_seleccionado
-
-if perfil_demo == "Paciente":
-    st.sidebar.caption(
-        "Selector de perfiles ficticios; no es una cuenta ni un control de acceso."
-        if CURRENT_LANGUAGE == "Español"
-        else "Demo profiles only; this is not an account or access control."
-    )
+    nombre_paciente = paciente_sel
 
 if nombre_paciente not in st.session_state.pacientes:
-    st.session_state.pacientes[nombre_paciente] = perfil_base(nombre_paciente)
+    st.session_state.pacientes[nombre_paciente] = perfil_base()
 
-if perfil_demo != "Paciente":
-    st.sidebar.markdown("---")
-    st.sidebar.header(tr("🩺 Ficha del paciente"))
-    with st.sidebar.form("form_ficha_paciente"):
-        edad = st.number_input(tr("Edad"), min_value=0, max_value=120, value=int(st.session_state.pacientes[nombre_paciente].get("edad", 30)))
-        generos = ["Femenino", "Masculino", "No binario", "Prefiero no decirlo"]
-        genero_actual = st.session_state.pacientes[nombre_paciente].get("genero", "Femenino")
-        genero = st.selectbox(tr("Género"), generos, index=generos.index(genero_actual), format_func=tr)
-        antecedentes = st.text_area(tr("Antecedentes relevantes"), value=tr(st.session_state.pacientes[nombre_paciente].get("antecedentes", "")))
-        motivo = st.text_area(tr("Motivo de consulta"), value=tr(st.session_state.pacientes[nombre_paciente].get("motivo", "")))
-        sintomas = st.text_area(tr("Síntomas principales"), value=tr(st.session_state.pacientes[nombre_paciente].get("sintomas", "")))
-        tratamiento = st.text_area(tr("Tratamiento / medicación"), value=tr(st.session_state.pacientes[nombre_paciente].get("tratamiento", "")))
-        opciones_red = ["Sí", "No"]
-        red_actual = st.session_state.pacientes[nombre_paciente].get("red_apoyo", "Sí")
-        red_apoyo = st.radio(tr("Red de apoyo"), opciones_red, index=opciones_red.index(red_actual), format_func=tr)
-        guardar_ficha = st.form_submit_button(tr("Guardar ficha"))
+with st.sidebar.expander(L("Configuración del análisis", "Analysis settings")):
+    groq_key = st.text_input("Groq API key", type="password", value="")
+    st.caption(L(
+        "La clave solo se usa para solicitar el análisis a Groq. No se guarda.",
+        "The key is only used to request the analysis from Groq. It is not stored.",
+    ))
 
-    if guardar_ficha:
-        st.session_state.pacientes[nombre_paciente] = {
-            "edad": edad,
-            "genero": genero,
-            "antecedentes": antecedentes,
-            "motivo": motivo,
-            "sintomas": sintomas,
-            "tratamiento": tratamiento,
-            "red_apoyo": red_apoyo,
-            "ultima_revision": "Ahora",
-            "riesgo": st.session_state.pacientes[nombre_paciente].get("riesgo", "E"),
-        }
-        st.sidebar.success(tr("✅ Ficha actualizada para {name}", name=nombre_paciente))
+perfil_actual = st.session_state.pacientes[nombre_paciente]
 
-st.sidebar.markdown("---")
-st.sidebar.header(tr("📱 Simulador de Mensajes"))
-canales_ingreso = ["Texto Directo", "Nota de Voz (Audio)"]
-opcion_ingreso = st.sidebar.radio(tr("Canal de Entrada"), canales_ingreso, format_func=tr)
+alertas = obtener_alertas()
+if perfil_demo == "Paciente":
+    alertas = [a for a in alertas if a[1] == nombre_paciente]
 
-if opcion_ingreso == "Texto Directo":
-    texto_simulado = st.sidebar.text_area(
-        tr("Mensaje del Paciente"),
-        tr("Siento mucha angustia y dolor en el pecho, necesito ayuda."),
+
+# ---------------------------------------------------------------------------
+# Componentes
+# ---------------------------------------------------------------------------
+
+def encabezado():
+    if perfil_demo == "Paciente":
+        st.title(L("Tu espacio de bienestar", "Your wellbeing space"))
+        st.caption(L(
+            "Comparte una actualización y consulta la información de tu ficha de demostración.",
+            "Share an update and review the information in your demo record.",
+        ))
+    else:
+        st.title("MindeLine")
+        st.caption(L(
+            "Ficha clínica y triaje digital · Prototipo de demostración",
+            "Clinical record and digital triage · Demo prototype",
+        ))
+    st.markdown(
+        "<div class='ml-demo'>"
+        + L("Datos sintéticos. No usar para decisiones clínicas ni con datos reales. "
+            "Ante una emergencia, contacta los servicios de emergencia locales.",
+            "Synthetic data. Do not use for clinical decisions or with real patient data. "
+            "In an emergency, contact local emergency services.")
+        + "</div>",
+        unsafe_allow_html=True,
     )
-    if st.sidebar.button(tr("Enviar Mensaje"), use_container_width=True):
-        if not groq_key:
-            st.sidebar.error(tr("Ingresa la API Key de Groq."))
-        else:
-            with st.spinner(tr("Procesando con Llama 3...")):
-                trans, json_res = procesar_audio_o_texto(
-                    groq_key, texto_ingresado=texto_simulado,
-                    idioma="en" if CURRENT_LANGUAGE == "English" else "es",
-                )
-                guardar_alerta(
-                    nombre_paciente=nombre_paciente,
-                    tipo_mensaje="Texto",
-                    contenido=texto_simulado,
-                    transcripcion=trans,
-                    nivel=json_res["nivel_riesgo"],
-                    resumen=json_res["resumen_clinico"],
-                    phq9=json_res.get("phq9_estimado", 0),
-                )
-                st.session_state.pacientes[nombre_paciente]["riesgo"] = json_res["nivel_riesgo"]
-                st.session_state.pacientes[nombre_paciente]["ultima_revision"] = "Reciente"
-                st.sidebar.success(tr("✅ Alerta registrada para {name}", name=nombre_paciente))
-                st.rerun()
 
-elif opcion_ingreso == "Nota de Voz (Audio)":
-    audio_file = st.sidebar.file_uploader(tr("Subir nota de voz (.mp3, .wav)"), type=["mp3", "wav", "m4a"])
-    if audio_file and st.sidebar.button(tr("Procesar Audio"), use_container_width=True):
-        if not groq_key:
-            st.sidebar.error(tr("Ingresa la API Key de Groq."))
-        else:
-            with st.spinner(tr("Transcribiendo con Whisper...")):
-                temp_path = f"temp_{audio_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(audio_file.getbuffer())
 
-                trans, json_res = procesar_audio_o_texto(
-                    groq_key, audio_file_path=temp_path,
-                    idioma="en" if CURRENT_LANGUAGE == "English" else "es",
-                )
-                guardar_alerta(
-                    nombre_paciente=nombre_paciente,
-                    tipo_mensaje="Audio",
-                    contenido="[Nota de voz]",
-                    transcripcion=trans,
-                    nivel=json_res["nivel_riesgo"],
-                    resumen=json_res["resumen_clinico"],
-                    phq9=json_res.get("phq9_estimado", 0),
-                )
-                st.session_state.pacientes[nombre_paciente]["riesgo"] = json_res["nivel_riesgo"]
-                st.session_state.pacientes[nombre_paciente]["ultima_revision"] = "Reciente"
-                st.sidebar.success(tr("✅ Audio procesado para {name}", name=nombre_paciente))
-                st.rerun()
+FLUJOS = {
+    "Paciente": (
+        ("Comparte cómo te sientes mediante el simulador de mensajes. Si necesitas ayuda inmediata, "
+         "contacta los servicios de emergencia locales o a tu equipo de salud.",
+         "Share how you are feeling using the message simulator. If you need immediate help, "
+         "contact local emergency services or your healthcare team."),
+        [("Compartir una actualización", "Share an update"),
+         ("El equipo revisa la solicitud", "The team reviews the request"),
+         ("Recibir seguimiento", "Receive follow-up")],
+    ),
+    "Enfermería": (
+        ("Revisa la bandeja, identifica solicitudes pendientes y marca cada caso cuando haya sido revisado.",
+         "Review the inbox, identify pending requests, and mark each case once reviewed."),
+        [("Revisar casos entrantes", "Review incoming cases"),
+         ("Tomar o marcar casos", "Take or mark cases"),
+         ("Derivar al equipo tratante cuando corresponda", "Refer to the care team when appropriate")],
+    ),
+    "Equipo tratante": (
+        ("Consulta la ficha, revisa alertas y utiliza los filtros de apoyo como referencia; "
+         "valida siempre las decisiones clínicamente.",
+         "Review the patient record and alerts. Use support filters as references and always validate decisions clinically."),
+        [("Revisar ficha e historial", "Review the record and history"),
+         ("Evaluar alertas priorizadas", "Assess prioritized alerts"),
+         ("Registrar seguimiento en la ficha", "Record follow-up in the patient record")],
+    ),
+}
+
+
+def flujo_de_trabajo():
+    descripcion, pasos = FLUJOS[perfil_demo]
+    with st.expander(L("Cómo funciona esta demo", "How this demo works")):
+        st.write(L(*descripcion))
+        for i, columna in enumerate(st.columns(len(pasos)), start=1):
+            es, en = pasos[i - 1]
+            columna.markdown(
+                f"<div class='ml-card'><div class='meta'>{L('Paso', 'Step')} {i}</div>"
+                f"<h4>{L(es, en)}</h4></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def mostrar_tarjeta_alerta(alerta):
-    alerta_id, nombre, fecha, tipo, transcripcion, nivel, resumen, phq9, estado = alerta
-    color_map = {
-        "A": tr("NIVEL A - EMERGENCIA"),
-        "B": tr("NIVEL B - URGENCIA"),
-        "C": tr("NIVEL C - PRIORITARIO"),
-        "D": tr("NIVEL D - SEGUIMIENTO"),
-        "E": tr("NIVEL E - RUTINA"),
-    }
-    with st.expander(f"{color_map.get(nivel, nivel)} | {tr('Paciente: {name}', name=nombre)} | [{tr(estado)}] — {fecha}"):
+    alerta_id, nombre, fecha, _tipo, transcripcion, nivel, resumen, phq9, estado = alerta
+    titulo = f"{etiqueta_nivel(nivel)} · {nombre} · {estado_txt(estado)} · {fecha}"
+    with st.expander(titulo):
         if nivel == "A":
-            st.error(tr("🚨 **PROTOCOLO DE CRISIS:** Derivar a SAMU 131 o Salud Responde *4141."))
-        c1, c2 = st.columns([3, 1])
+            st.error(L(
+                "Protocolo de crisis: derivar a SAMU 131 o Salud Responde *4141.",
+                "Crisis protocol: contact local emergency services (in Chile: SAMU 131 or Salud Responde *4141) "
+                "or the patient's care team immediately.",
+            ))
+        c1, c2 = st.columns([4, 1])
         with c1:
-            st.write(f"**{tr('Transcripción')}:** *\"{transcripcion}\"*")
-            st.write(f"**{tr('Síntesis')}:** {resumen}")
-            st.write(f"**{tr('PHQ-9 estimado')}:** {phq9}")
+            st.markdown(badge_nivel(nivel), unsafe_allow_html=True)
+            st.write(f"**{L('Transcripción', 'Transcript')}:** “{transcripcion}”")
+            st.write(f"**{L('Síntesis', 'Summary')}:** {resumen}")
+            st.write(f"**{L('PHQ-9 estimado', 'Estimated PHQ-9')}:** {phq9}")
         with c2:
             if estado == "Pendiente":
-                if st.button(tr("Tomar Caso"), key=f"btn_{alerta_id}"):
+                if st.button(L("Tomar caso", "Take case"), key=f"tomar_{alerta_id}",
+                             width="stretch"):
                     actualizar_estado_alerta(alerta_id, "En Atencion")
                     st.rerun()
 
 
-tab_labels = [tr("🏠 Dashboard"), tr("🧾 Ficha Clínica")]
-if perfil_demo == "Paciente":
-    tab_labels.append("💡 Mi apoyo" if CURRENT_LANGUAGE == "Español" else "💡 My support")
-else:
-    tab_labels.extend([
-        tr("🚨 Triaje Clínico"),
-        tr("🏥 Enfermería"),
-        tr("👩‍⚕️ Equipo Tratante"),
-        tr("📈 Evolución"),
-        "📚 Recursos de apoyo" if CURRENT_LANGUAGE == "Español" else "📚 Support resources",
-    ])
+def registrar_resultado(tipo, contenido, trans, json_res):
+    guardar_alerta(
+        nombre_paciente=nombre_paciente,
+        tipo_mensaje=tipo,
+        contenido=contenido,
+        transcripcion=trans,
+        nivel=json_res["nivel_riesgo"],
+        resumen=json_res["resumen_clinico"],
+        phq9=json_res.get("phq9_estimado", 0),
+    )
+    st.session_state.pacientes[nombre_paciente]["riesgo"] = json_res["nivel_riesgo"]
+    st.session_state.pacientes[nombre_paciente]["ultima_revision"] = "Reciente"
 
-tabs = st.tabs(tab_labels)
 
-tab_dashboard = tabs[0]
-tab_ficha = tabs[1]
-if perfil_demo == "Paciente":
-    tab_support = tabs[2]
-else:
-    tab_triaje = tabs[2]
-    tab_enfermeria = tabs[3]
-    tab_tratante = tabs[4]
-    tab_analitica = tabs[5]
-    tab_support = tabs[6]
+def idioma_api():
+    return "en" if st.session_state.language == "English" else "es"
 
-alertas = obtener_alertas()
-if perfil_demo == "Paciente":
-    alertas = [alerta for alerta in alertas if alerta[1] == nombre_paciente]
 
-perfil_actual = st.session_state.pacientes.get(nombre_paciente, perfil_base(nombre_paciente))
+def render_simulador():
+    st.subheader(L("Simulador de mensajes", "Message simulator"))
+    st.caption(L(
+        "Procesa un mensaje de texto o una nota de voz con IA. Requiere conexión a Internet y una Groq API key.",
+        "Process a text message or voice note with AI. Requires an Internet connection and a Groq API key.",
+    ))
+    canales = {"texto": ("Texto", "Text message"), "audio": ("Nota de voz", "Voice note")}
+    canal = st.radio(
+        L("Canal de entrada", "Input method"), list(canales),
+        format_func=lambda c: L(*canales[c]), horizontal=True,
+    )
+    sin_clave = L("Ingresa la Groq API key en «Configuración del análisis» (barra lateral).",
+                  "Enter the Groq API key under “Analysis settings” (sidebar).")
 
-with tab_dashboard:
-    total_alertas = len(alertas)
-    if perfil_demo == "Paciente":
-        st.metric(tr("Interacciones totales"), total_alertas)
-    else:
-        urgencias_a = sum(1 for a in alertas if a[5] == "A")
-        urgencias_b = sum(1 for a in alertas if a[5] == "B")
-        pendientes = sum(1 for a in alertas if a[8] == "Pendiente")
-
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric(tr("Interacciones totales"), total_alertas)
-        d2.metric(tr("Nivel A"), urgencias_a)
-        d3.metric(tr("Nivel B"), urgencias_b)
-        d4.metric(tr("Pendientes"), pendientes)
-
-    st.markdown("---")
-    if perfil_demo == "Paciente":
-        if CURRENT_LANGUAGE == "English":
-            st.info("Your updates are private to this demo patient profile and will be reviewed by the care team. If you need immediate help, contact local emergency services or your healthcare team.")
-        else:
-            st.info("Tus actualizaciones se registran en este perfil de demostración para que el equipo de salud las revise. Si necesitas ayuda inmediata, contacta los servicios de emergencia locales o a tu equipo de salud.")
-    else:
-        left, right = st.columns([2, 1])
-        with left:
-            st.markdown(f"### {tr('Estado clínico actual')}")
-            if alertas:
-                ult = alertas[0]
-                _, nombre_ult, fecha_ult, _, _, nivel_ult, resumen_ult, _, estado_ult = ult
-                st.info(tr(
-                    "Último caso: {name} · nivel {level} · {status} · {date}\n\n{summary}",
-                    name=nombre_ult, level=nivel_ult, status=tr(estado_ult),
-                    date=fecha_ult, summary=resumen_ult,
-                ))
+    if canal == "texto":
+        texto = st.text_area(
+            L("Mensaje del paciente", "Patient message"),
+            value=L("Siento mucha angustia y dolor en el pecho, necesito ayuda.",
+                    "I feel very anxious and have chest pain. I need help."),
+            height=140,
+        )
+        if st.button(L("Enviar mensaje", "Send message")):
+            if not groq_key:
+                st.error(sin_clave)
+            elif not texto.strip():
+                st.error(L("Escribe un mensaje para enviar.", "Write a message to send."))
             else:
-                st.info(tr("No hay alertas registradas aún. El sistema está listo para recibir mensajes o audio del paciente."))
-        with right:
-            st.markdown(f"### {tr('Riesgo del paciente activo')}")
-            riesgo_actual = perfil_actual.get("riesgo", "E")
-            color_riesgo = {
-                "A": "#dc2626",
-                "B": "#f59e0b",
-                "C": "#facc15",
-                "D": "#3b82f6",
-                "E": "#22c55e",
-            }.get(riesgo_actual, "#94a3b8")
-            st.markdown(
-                f"<div style='padding: 1rem 1.1rem; border-radius: 16px; background: {color_riesgo}22; border: 1px solid {color_riesgo}; color: #0f172a; font-weight: 700; text-align: center;'>{tr('Nivel')} {riesgo_actual}</div>",
-                unsafe_allow_html=True,
+                try:
+                    with st.spinner(L("Analizando mensaje…", "Analyzing message…")):
+                        trans, res = procesar_audio_o_texto(
+                            groq_key, texto_ingresado=texto, idioma=idioma_api())
+                    registrar_resultado("Texto", texto, trans, res)
+                except Exception:
+                    st.error(L("No se pudo procesar el mensaje. Revisa la API key y tu conexión, e inténtalo de nuevo.",
+                               "The message could not be processed. Check the API key and your connection, then try again."))
+                else:
+                    st.success(L(f"Alerta registrada para {nombre_paciente}.",
+                                 f"Alert recorded for {nombre_paciente}."))
+                    st.rerun()
+    else:
+        archivo = st.file_uploader(
+            L("Subir nota de voz (.mp3, .wav, .m4a)", "Upload a voice note (.mp3, .wav, .m4a)"),
+            type=["mp3", "wav", "m4a"],
+        )
+        if archivo and st.button(L("Procesar audio", "Process audio")):
+            if not groq_key:
+                st.error(sin_clave)
+            else:
+                ruta = None
+                try:
+                    sufijo = Path(archivo.name).suffix or ".wav"
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=sufijo) as tmp:
+                        tmp.write(archivo.getbuffer())
+                        ruta = tmp.name
+                    with st.spinner(L("Transcribiendo audio…", "Transcribing audio…")):
+                        trans, res = procesar_audio_o_texto(
+                            groq_key, audio_file_path=ruta, idioma=idioma_api())
+                    registrar_resultado("Audio", "[Nota de voz]", trans, res)
+                except Exception:
+                    st.error(L("No se pudo procesar el audio. Revisa la API key, el formato del archivo y tu conexión.",
+                               "The audio could not be processed. Check the API key, the file format, and your connection."))
+                else:
+                    st.success(L(f"Audio procesado para {nombre_paciente}.",
+                                 f"Audio processed for {nombre_paciente}."))
+                    st.rerun()
+                finally:
+                    if ruta and os.path.exists(ruta):
+                        os.remove(ruta)
+
+
+# ---------------------------------------------------------------------------
+# Pestañas
+# ---------------------------------------------------------------------------
+
+encabezado()
+flujo_de_trabajo()
+
+if perfil_demo == "Paciente":
+    nombres_tabs = [
+        L(":material/home: Inicio", ":material/home: Home"),
+        L(":material/assignment_ind: Mi ficha", ":material/assignment_ind: My record"),
+        L(":material/chat: Enviar mensaje", ":material/chat: Send a message"),
+        L(":material/favorite: Mi apoyo", ":material/favorite: My support"),
+    ]
+    tab_dashboard, tab_ficha, tab_simulador, tab_support = st.tabs(nombres_tabs)
+else:
+    nombres_tabs = [
+        L(":material/dashboard: Resumen", ":material/dashboard: Overview"),
+        L(":material/assignment_ind: Ficha clínica", ":material/assignment_ind: Patient record"),
+        L(":material/inbox: Triaje", ":material/inbox: Triage"),
+        L(":material/stethoscope: Enfermería", ":material/stethoscope: Nursing"),
+        L(":material/groups: Equipo tratante", ":material/groups: Care team"),
+        L(":material/show_chart: Evolución", ":material/show_chart: Trends"),
+        L(":material/chat: Simulador", ":material/chat: Simulator"),
+        L(":material/menu_book: Recursos", ":material/menu_book: Resources"),
+    ]
+    (tab_dashboard, tab_ficha, tab_triaje, tab_enfermeria, tab_tratante,
+     tab_analitica, tab_simulador, tab_support) = st.tabs(nombres_tabs)
+
+
+# --- Resumen --------------------------------------------------------------
+with tab_dashboard:
+    if perfil_demo == "Paciente":
+        st.metric(L("Interacciones totales", "Total interactions"), len(alertas))
+        st.info(L(
+            "Tus actualizaciones se registran en este perfil de demostración para que el equipo de salud las revise. "
+            "Si necesitas ayuda inmediata, contacta los servicios de emergencia locales o a tu equipo de salud.",
+            "Your updates are recorded in this demo profile for the care team to review. "
+            "If you need immediate help, contact local emergency services or your healthcare team.",
+        ))
+    else:
+        nivel_a = sum(1 for a in alertas if a[5] == "A")
+        nivel_b = sum(1 for a in alertas if a[5] == "B")
+        pendientes = sum(1 for a in alertas if a[8] == "Pendiente")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric(L("Interacciones totales", "Total interactions"), len(alertas))
+        d2.metric(L("Nivel A · Emergencia", "Level A · Emergency"), nivel_a)
+        d3.metric(L("Nivel B · Urgencia", "Level B · Urgent"), nivel_b)
+        d4.metric(L("Pendientes", "Pending"), pendientes)
+
+        st.write("")
+        izquierda, derecha = st.columns([2, 1])
+        with izquierda:
+            st.subheader(L("Estado clínico actual", "Current clinical status"))
+            if alertas:
+                _id, nom, fecha, _t, _tr, nivel, resumen, _p, estado = alertas[0]
+                card(
+                    f"<h4>{nom}</h4>"
+                    f"<div class='meta'>{estado_txt(estado)} · {fecha}</div>"
+                    f"<p style='margin:8px 0'>{resumen}</p>{badge_nivel(nivel)}",
+                    nivel,
+                )
+            else:
+                st.info(L(
+                    "Aún no hay alertas. Envía un mensaje desde el simulador para registrar la primera.",
+                    "No alerts yet. Send a message from the simulator to record the first one.",
+                ))
+        with derecha:
+            st.subheader(L("Paciente activo", "Active patient"))
+            riesgo = perfil_actual.get("riesgo", "E")
+            card(
+                f"<h4>{nombre_paciente}</h4>"
+                f"<div class='meta'>{L('Edad', 'Age')}: {perfil_actual.get('edad', 0)} "
+                f"{L('años', 'years')} · {L('Red de apoyo', 'Support network')}: "
+                f"{td(perfil_actual.get('red_apoyo', 'No'))}</div>"
+                f"<div style='margin-top:8px'>{badge_nivel(riesgo)}</div>",
+                riesgo,
             )
-            st.write(tr("Paciente: {name}", name=nombre_paciente))
-            st.write(tr("Edad: {age} años", age=perfil_actual.get("edad", 0)))
-            st.write(f"{tr('Red de apoyo')}: {tr(perfil_actual.get('red_apoyo', 'No'))}")
 
+
+# --- Ficha clínica --------------------------------------------------------
 with tab_ficha:
-    st.subheader(tr("Ficha clínica de {name}", name=nombre_paciente))
-    columnas_ficha = st.columns(2 if perfil_demo == "Paciente" else 4)
-    c1, c2 = columnas_ficha[:2]
-    c1.metric(tr("Edad"), tr("Edad: {age} años", age=perfil_actual.get("edad", 0)))
-    c2.metric(tr("Género"), tr(perfil_actual.get("genero", "-"))[:14])
+    st.subheader(L(f"Ficha clínica de {nombre_paciente}", f"Clinical record for {nombre_paciente}"))
+    cols = st.columns(2 if perfil_demo == "Paciente" else 4)
+    cols[0].metric(L("Edad", "Age"), f"{perfil_actual.get('edad', 0)} {L('años', 'years')}")
+    cols[1].metric(L("Género", "Gender"), td(perfil_actual.get("genero", "-")))
     if perfil_demo != "Paciente":
-        c3, c4 = columnas_ficha[2:]
-        c3.metric(tr("Riesgo actual"), perfil_actual.get("riesgo", "E"))
-        c4.metric(tr("Última revisión"), tr(perfil_actual.get("ultima_revision", "Nunca")))
+        cols[2].metric(L("Última revisión", "Last review"), td(perfil_actual.get("ultima_revision", "Nunca")))
+        cols[3].metric(L("Riesgo actual", "Current risk"), perfil_actual.get("riesgo", "E"))
 
-    st.markdown("---")
     info1, info2 = st.columns(2)
     with info1:
-        st.write(f"**{tr('Antecedentes relevantes')}:** {tr(perfil_actual.get('antecedentes', 'Sin antecedentes cargados.'))}")
-        st.write(f"**{tr('Motivo de consulta')}:** {tr(perfil_actual.get('motivo', 'Sin motivo registrado.'))}")
-        st.write(f"**{tr('Síntomas principales')}:** {tr(perfil_actual.get('sintomas', 'Sin síntomas registrados.'))}")
+        st.markdown(f"**{L('Antecedentes relevantes', 'Relevant medical history')}**")
+        st.write(td(perfil_actual.get("antecedentes", "")))
+        st.markdown(f"**{L('Motivo de consulta', 'Reason for visit')}**")
+        st.write(td(perfil_actual.get("motivo", "")))
+        st.markdown(f"**{L('Síntomas principales', 'Main symptoms')}**")
+        st.write(td(perfil_actual.get("sintomas", "")))
     with info2:
-        st.write(f"**{tr('Tratamiento / medicación')}:** {tr(perfil_actual.get('tratamiento', 'Sin medicación cargada.'))}")
-        st.write(f"**{tr('Red de apoyo')}:** {tr(perfil_actual.get('red_apoyo', 'No'))}")
+        st.markdown(f"**{L('Tratamiento / medicación', 'Treatment / medication')}**")
+        st.write(td(perfil_actual.get("tratamiento", "")))
+        st.markdown(f"**{L('Red de apoyo', 'Support network')}**")
+        st.write(td(perfil_actual.get("red_apoyo", "No")))
         if perfil_demo != "Paciente":
-            estado_general = "Estable" if perfil_actual.get("riesgo", "E") in ["D", "E"] else "Necesita seguimiento"
-            st.write(f"**{tr('Estado general')}:** {tr(estado_general)}")
+            estable = perfil_actual.get("riesgo", "E") in ("D", "E")
+            st.markdown(f"**{L('Estado general', 'Overall status')}**")
+            st.markdown(
+                badge_nivel("E" if estable else perfil_actual.get("riesgo", "C")),
+                unsafe_allow_html=True,
+            )
 
     if perfil_demo != "Paciente":
-        st.markdown(f"### {tr('Resumen ejecutivo')}")
-        motivo_resumen = tr(perfil_actual.get("motivo", "consulta general")).rstrip(". ")
-        sintomas_resumen = tr(perfil_actual.get("sintomas", "sin síntomas registrados")).rstrip(". ")
-        resumen_texto = tr(
-            "Paciente {name} ({age} años), con {reason}. Actualmente presenta {symptoms}. Se recomienda revisar nivel {level} y reforzar seguimiento si corresponde.",
-            name=nombre_paciente, age=perfil_actual.get("edad", 0),
-            reason=motivo_resumen,
-            symptoms=sintomas_resumen,
-            level=perfil_actual.get("riesgo", "E"),
-        )
-        st.info(resumen_texto)
+        st.subheader(L("Resumen", "Summary"))
+        motivo = td(perfil_actual.get("motivo", "")).rstrip(". ")
+        sintomas = td(perfil_actual.get("sintomas", "")).rstrip(". ")
+        st.info(L(
+            f"Paciente {nombre_paciente} ({perfil_actual.get('edad', 0)} años), con motivo: {motivo}. "
+            f"Actualmente presenta: {sintomas}. Revisa el nivel {perfil_actual.get('riesgo', 'E')} "
+            "y refuerza el seguimiento si corresponde.",
+            f"Patient {nombre_paciente} ({perfil_actual.get('edad', 0)} years old), reason: {motivo}. "
+            f"Current symptoms: {sintomas}. Review risk level {perfil_actual.get('riesgo', 'E')} "
+            "and provide follow-up as appropriate.",
+        ))
 
-with tab_support:
-    if perfil_demo == "Paciente":
-        if CURRENT_LANGUAGE == "English":
-            st.subheader("Support for you")
-            st.caption("Resources are matched to topics in your demo record. They are educational, not a diagnosis or treatment plan.")
-        else:
-            st.subheader("Apoyo para ti")
-            st.caption("Los recursos se relacionan con temas de tu ficha de demostración. Son educativos, no un diagnóstico ni un plan de tratamiento.")
-    elif CURRENT_LANGUAGE == "English":
-        st.subheader(f"Support resources · {nombre_paciente}")
-        st.caption("Resources are matched to the selected patient's record for educational reference only; validate them with the care team.")
-    else:
-        st.subheader(f"Recursos de apoyo · {nombre_paciente}")
-        st.caption("Los recursos se relacionan con la ficha del paciente seleccionado y son solo orientativos; valídalos con el equipo tratante.")
-
-    texto_ficha = normalizar_texto(" ".join(
-        str(perfil_actual.get(campo, ""))
-        for campo in ("antecedentes", "motivo", "sintomas")
-    ))
-    recursos_relacionados = [
-        video for video in VIDEO_RESOURCES
-        if any(normalizar_texto(keyword) in texto_ficha for keyword in video["keywords"])
-    ]
-
-    if recursos_relacionados:
-        if CURRENT_LANGUAGE == "English":
-            st.write("Topics related to this record:")
-        else:
-            st.write("Temas relacionados con esta ficha:")
-
-        for video in recursos_relacionados:
-            titulo_video = video["title_en"] if CURRENT_LANGUAGE == "English" else video["title_es"]
-            descripcion_video = video["description_en"] if CURRENT_LANGUAGE == "English" else video["description_es"]
-            sugerencias = video["support_en"] if CURRENT_LANGUAGE == "English" else video["support_es"]
-            with st.expander(titulo_video, expanded=True):
-                st.write(descripcion_video)
-                st.markdown("**" + ("Ideas de apoyo general" if CURRENT_LANGUAGE == "Español" else "General support ideas") + "**")
-                for sugerencia in sugerencias:
-                    st.markdown(f"- {sugerencia}")
-                video_url = f"https://www.youtube.com/results?search_query={quote_plus(video['query'])}"
-                st.link_button(
-                    "Ver videos en YouTube" if CURRENT_LANGUAGE == "Español" else "Watch videos on YouTube",
-                    video_url,
-                )
-    elif CURRENT_LANGUAGE == "English":
-        st.info("No educational topic matched this record. Ask the care team for resources suited to this patient.")
-    else:
-        st.info("No encontramos un tema educativo relacionado con esta ficha. Consulta con el equipo tratante qué recursos son adecuados para este paciente.")
-
-    texto_sintomas = normalizar_texto(
-        f"{perfil_actual.get('motivo', '')} {perfil_actual.get('sintomas', '')}"
-    )
-    if any(term in texto_sintomas for term in ("dolor en el pecho", "presion toracica", "chest pain")):
-        if CURRENT_LANGUAGE == "English":
-            st.warning("Chest pain should not automatically be attributed to anxiety. For new or severe chest pain, trouble breathing, or fainting, seek urgent medical care.")
-        else:
-            st.warning("El dolor o la presión en el pecho no deben atribuirse automáticamente a la ansiedad. Si son nuevos o intensos, o aparecen con dificultad para respirar o desmayo, busca atención médica urgente.")
-
-    if CURRENT_LANGUAGE == "English":
-        st.caption("These general ideas do not replace professional care. Do not change medication without talking to the prescriber. For immediate danger, contact local emergency services or the care team.")
-    else:
-        st.caption("Estas ideas generales no reemplazan la atención profesional. No cambies medicamentos sin hablar con quien los indicó. Si hay peligro inmediato, contacta los servicios de emergencia locales o al equipo de salud.")
-
-    if perfil_demo == "Paciente":
-        st.markdown("---")
-        if CURRENT_LANGUAGE == "English":
-            st.markdown("### How are you feeling right now?")
-            st.caption("Choose an emoji that best describes how you feel. There is no right or wrong answer.")
-            opciones_animo = ["😄", "🙂", "😐", "😟", "😢"]
-            texto_boton_animo = "Save my check-in"
-        else:
-            st.markdown("### ¿Cómo te sientes ahora?")
-            st.caption("Elige el emoji que mejor describa cómo te sientes. No hay respuestas correctas o incorrectas.")
-            opciones_animo = ["😄", "🙂", "😐", "😟", "😢"]
-            texto_boton_animo = "Guardar cómo me siento"
-
-        with st.form("form_checkin_animo"):
-            animo_seleccionado = st.radio(
-                "Choose an emoji" if CURRENT_LANGUAGE == "English" else "Describe cómo te sientes con un emoji",
-                opciones_animo,
-                horizontal=True,
-                label_visibility="collapsed",
+    with st.expander(L("Editar ficha", "Edit record")):
+        generos = ["Femenino", "Masculino", "No binario", "Prefiero no decirlo"]
+        genero_actual = perfil_actual.get("genero", "Femenino")
+        with st.form("form_ficha"):
+            f1, f2 = st.columns(2)
+            edad = f1.number_input(L("Edad", "Age"), 0, 120, int(perfil_actual.get("edad", 30)))
+            genero = f2.selectbox(
+                L("Género", "Gender"), generos,
+                index=generos.index(genero_actual) if genero_actual in generos else 0,
+                format_func=td,
             )
-            guardar_animo = st.form_submit_button(texto_boton_animo)
+            antecedentes = st.text_area(L("Antecedentes relevantes", "Relevant medical history"),
+                                        value=perfil_actual.get("antecedentes", ""))
+            motivo_n = st.text_area(L("Motivo de consulta", "Reason for visit"),
+                                    value=perfil_actual.get("motivo", ""))
+            sintomas_n = st.text_area(L("Síntomas principales", "Main symptoms"),
+                                      value=perfil_actual.get("sintomas", ""))
+            tratamiento = st.text_area(L("Tratamiento / medicación", "Treatment / medication"),
+                                       value=perfil_actual.get("tratamiento", ""))
+            red_apoyo = st.radio(
+                L("Red de apoyo", "Support network"), ["Sí", "No"], horizontal=True,
+                index=0 if perfil_actual.get("red_apoyo", "Sí") == "Sí" else 1, format_func=td,
+            )
+            guardar = st.form_submit_button(L("Guardar ficha", "Save record"))
+        if guardar:
+            st.session_state.pacientes[nombre_paciente] = {
+                "edad": edad, "genero": genero, "antecedentes": antecedentes,
+                "motivo": motivo_n, "sintomas": sintomas_n, "tratamiento": tratamiento,
+                "red_apoyo": red_apoyo, "ultima_revision": "Ahora",
+                "riesgo": perfil_actual.get("riesgo", "E"),
+            }
+            st.success(L(f"Ficha actualizada para {nombre_paciente}.",
+                         f"Record updated for {nombre_paciente}."))
+            st.rerun()
 
-        if guardar_animo:
-            st.session_state["patient_mood_checkin"] = animo_seleccionado
 
-        if "patient_mood_checkin" in st.session_state:
-            if CURRENT_LANGUAGE == "English":
-                st.success(f"Thanks for sharing: {st.session_state['patient_mood_checkin']}. This stays in this demo session and is not sent to the care team.")
-            else:
-                st.success(f"Gracias por compartirlo: {st.session_state['patient_mood_checkin']}. Queda solo en esta sesión de demostración y no se envía al equipo de salud.")
-
-if perfil_demo == "Paciente":
-    st.stop()
-
+# --- Triaje (equipo) ------------------------------------------------------
 if perfil_demo != "Paciente":
     with tab_triaje:
-        if not alertas:
-            st.info(tr("👋 No hay alertas registradas."))
-        else:
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric(tr("Interacciones Totales"), len(alertas))
-            m2.metric(tr("Emergencias Nivel A"), sum(1 for a in alertas if a[5] == "A"))
-            m3.metric(tr("Urgencias Nivel B"), sum(1 for a in alertas if a[5] == "B"))
-            m4.metric(tr("Casos Pendientes"), sum(1 for a in alertas if a[8] == "Pendiente"))
-            st.markdown("---")
-            for alerta in alertas:
-                mostrar_tarjeta_alerta(alerta)
+        st.subheader(L("Triaje clínico", "Clinical triage"))
+        st.caption(L(
+            "La clasificación automática es orientativa y no sustituye la evaluación profesional.",
+            "Automatic classification is indicative and does not replace professional assessment.",
+        ))
+        t1, t2, t3, t4 = st.columns(4)
+        t1.metric(L("Interacciones totales", "Total interactions"), len(alertas))
+        t2.metric(L("Emergencias nivel A", "Level A emergencies"), sum(1 for a in alertas if a[5] == "A"))
+        t3.metric(L("Urgencias nivel B", "Level B urgent cases"), sum(1 for a in alertas if a[5] == "B"))
+        t4.metric(L("Casos pendientes", "Pending cases"), sum(1 for a in alertas if a[8] == "Pendiente"))
+        niveles_sel = st.multiselect(
+            L("Filtrar por nivel", "Filter by level"), list(NIVELES), default=list(NIVELES),
+            format_func=etiqueta_nivel,
+        )
+        visibles = [a for a in alertas if a[5] in niveles_sel]
+        if not visibles:
+            st.info(L("No hay alertas para este filtro.", "No alerts match this filter."))
+        for alerta in visibles:
+            mostrar_tarjeta_alerta(alerta)
 
-with tab_enfermeria:
-    st.subheader(tr("Bandeja de enfermería"))
-    st.caption(tr("Los casos recibidos por WhatsApp o por el simulador se revisan aquí antes de su derivación."))
 
-    if not alertas and not st.session_state.demo_cases:
-        st.info(tr("Todavía no hay casos recibidos por WhatsApp."))
-    else:
+# --- Enfermería -----------------------------------------------------------
+if perfil_demo != "Paciente":
+    with tab_enfermeria:
+        st.subheader(L("Bandeja de enfermería", "Nursing inbox"))
+        st.caption(L(
+            "Los casos recibidos por WhatsApp o por el simulador se revisan aquí antes de su derivación.",
+            "Cases received through WhatsApp or the simulator are reviewed here before referral.",
+        ))
+        urgencias = {"alta": ("Alta", "High"), "media": ("Media", "Medium"), "baja": ("Baja", "Low")}
         for caso in st.session_state.demo_cases:
-            urgencia_label = {"alta": "Alta", "media": "Media", "baja": "Baja"}.get(caso["urgencia"], "Media")
-            with st.container():
-                st.markdown(f"### {caso['nombre']} · {caso['canal']}")
-                st.write(f"**{tr('Teléfono')}:** {caso['telefono']}")
-                st.write(f"**{tr('Resumen')}:** {tr(caso['resumen'])}")
-                st.write(f"**{tr('Detalle')}:** {tr(caso['detalle'])}")
-                st.write(f"**{tr('Estado')}:** {tr(caso['estado'])}")
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.badge(tr("Urgencia {urgency}", urgency=tr(urgencia_label)), icon="🚨")
-                with col2:
-                    if st.button(tr("Marcar como revisado"), key=f"demo_{caso['id']}"):
+            nivel = URGENCIA_A_NIVEL.get(caso["urgencia"], "D")
+            u_es, u_en = urgencias.get(caso["urgencia"], (caso["urgencia"], caso["urgencia"]))
+            c1, c2 = st.columns([5, 1], vertical_alignment="center")
+            with c1:
+                card(
+                    f"<h4>{caso['nombre']}</h4>"
+                    f"<div class='meta'>{caso['canal']} · {caso['telefono']} · {caso['id']}</div>"
+                    f"<p style='margin:8px 0 4px'>{td(caso['resumen'])}</p>"
+                    f"<div class='meta'>{td(caso['detalle'])}</div>"
+                    f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+                    f"{badge_nivel(nivel)}"
+                    f"<span class='ml-badge ml-silent'>{L('Urgencia', 'Urgency')}: {L(u_es, u_en)}</span>"
+                    f"<span class='ml-badge ml-silent'>{estado_txt(caso['estado'])}</span></div>",
+                    nivel,
+                )
+            with c2:
+                if caso["estado"] != "Revisado":
+                    if st.button(L("Marcar como revisado", "Mark as reviewed"),
+                                 key=f"rev_{caso['id']}", width="stretch"):
                         caso["estado"] = "Revisado"
                         st.rerun()
-                st.markdown("---")
-
-        if alertas:
-            st.markdown(tr("### Casos registrados en MindeLine"))
-            for alerta in alertas[:5]:
-                alerta_id, nombre, fecha, tipo, transcripcion, nivel, resumen, phq9, estado = alerta
-                st.write(f"- {nombre} | {tr('Nivel')} {nivel} | {tr(estado)} | {fecha}")
-
-with tab_tratante:
-    st.subheader(tr("Filtro de solicitudes médicas · CIE-10"))
-    st.caption(tr("Prototipo de apoyo para equipo tratante. Datos de ejemplo y no reemplazan la validación clínica oficial."))
-
-    grupos = ["Todos los grupos"] + [g["nombre"] for g in CIE10_DATA]
-    grupo_sel = st.selectbox(tr("1. Grupo / capítulo"), grupos, format_func=tr)
-
-    categorias = ["Todas las categorías"]
-    if grupo_sel != "Todos los grupos":
-        grupo_obj = next(g for g in CIE10_DATA if g["nombre"] == grupo_sel)
-        categorias += [c["nombre"] for c in grupo_obj["categories"]]
-    categoria_sel = st.selectbox(tr("2. Categoría diagnóstica"), categorias, format_func=tr)
-
-    subcategorias = ["Todas las subcategorías"]
-    if grupo_sel != "Todos los grupos":
-        grupo_obj = next(g for g in CIE10_DATA if g["nombre"] == grupo_sel)
-        if categoria_sel != "Todas las categorías":
-            categoria_obj = next(c for c in grupo_obj["categories"] if c["nombre"] == categoria_sel)
-            subcategorias += [s["name"] for s in categoria_obj["subcategories"]]
-        elif categoria_sel == "Todas las categorías":
-            for cat in grupo_obj["categories"]:
-                subcategorias += [s["name"] for s in cat["subcategories"]]
-    subcategoria_sel = st.selectbox(tr("3. Subcategoría específica"), subcategorias, format_func=tr)
-
-    def obtener_entradas_filtradas():
-        entradas = []
-        for grupo in CIE10_DATA:
-            for categoria in grupo["categories"]:
-                for subcategoria in categoria["subcategories"]:
-                    include = True
-                    if grupo_sel != "Todos los grupos" and grupo["nombre"] != grupo_sel:
-                        include = False
-                    if include and categoria_sel != "Todas las categorías" and categoria["nombre"] != categoria_sel:
-                        include = False
-                    if include and subcategoria_sel != "Todas las subcategorías" and subcategoria["name"] != subcategoria_sel:
-                        include = False
-                    if include:
-                        entradas.append({
-                            "code": subcategoria["code"],
-                            "name": subcategoria["name"],
-                            "count": subcategoria["count"],
-                            "grupo": grupo["nombre"],
-                            "categoria": categoria["nombre"],
-                        })
-        return entradas
-
-    resultados = obtener_entradas_filtradas()
-    total = sum(r["count"] for r in resultados)
-    if resultados:
-        st.info(tr(
-            "Se muestran {count} registros de ejemplo con un total de {total} casos. Estos recuentos no corresponden a un expediente clínico real.",
-            count=len(resultados), total=total,
-        ))
-        if CURRENT_LANGUAGE == "English":
-            nombres_columnas = {
-                "code": "Code",
-                "name": "Name",
-                "count": "Cases",
-                "grupo": "Group",
-                "categoria": "Category",
-            }
+        st.subheader(L("Casos registrados en MindeLine", "Cases recorded in MindeLine"))
+        if not alertas:
+            st.info(L("Aún no hay casos registrados desde el simulador.",
+                      "No cases have been recorded from the simulator yet."))
         else:
-            nombres_columnas = {
-                "code": "Código",
-                "name": "Nombre",
-                "count": "Casos",
-                "grupo": "Grupo",
-                "categoria": "Categoría",
-            }
-        dataframe_resultados = pd.DataFrame(resultados).rename(columns=nombres_columnas)
-        if CURRENT_LANGUAGE == "English":
-            dataframe_resultados["Name"] = dataframe_resultados["Name"].map(tr)
-            dataframe_resultados["Group"] = dataframe_resultados["Group"].map(tr)
-            dataframe_resultados["Category"] = dataframe_resultados["Category"].map(tr)
-        st.dataframe(dataframe_resultados, use_container_width=True)
-    else:
-        st.warning(tr("Sin resultados para este filtro. Intenta resetear o elegir otra combinación."))
+            filas = [{
+                L("Paciente", "Patient"): a[1],
+                L("Fecha", "Date"): a[2],
+                L("Nivel", "Level"): etiqueta_nivel(a[5]),
+                L("Estado", "Status"): estado_txt(a[8]),
+                L("Resumen", "Summary"): a[6],
+            } for a in alertas]
+            st.dataframe(pd.DataFrame(filas), width="stretch", hide_index=True)
 
-    st.markdown("---")
-    if CURRENT_LANGUAGE == "English":
-        st.subheader("Educational video resources")
-        st.caption("Short, supportive material for common mental health conditions. This content is educational and does not replace clinical assessment.")
-    else:
-        st.subheader("Recursos educativos en video")
-        st.caption("Material breve y orientativo para trastornos frecuentes de salud mental. Este contenido es educativo y no reemplaza la evaluación clínica.")
 
-    for video in VIDEO_RESOURCES:
-        title = video["title_en"] if CURRENT_LANGUAGE == "English" else video["title_es"]
-        description = video["description_en"] if CURRENT_LANGUAGE == "English" else video["description_es"]
-        with st.expander(title):
-            st.write(description)
-            video_url = f"https://www.youtube.com/results?search_query={quote_plus(video['query'])}"
-            st.link_button(
-                "Ver videos en YouTube" if CURRENT_LANGUAGE == "Español" else "Watch videos on YouTube",
-                video_url,
+# --- Equipo tratante ------------------------------------------------------
+if perfil_demo != "Paciente":
+    with tab_tratante:
+        st.subheader(L("Filtro de solicitudes médicas · CIE-10", "Medical request filter · ICD-10"))
+        st.caption(L(
+            "Prototipo de apoyo para el equipo tratante. Datos de ejemplo; no reemplazan la validación clínica oficial.",
+            "Decision-support prototype for the care team. Sample data only; it does not replace clinical review.",
+        ))
+        TODOS = "__todos__"
+        f1, f2, f3 = st.columns(3)
+        grupos = {g["id"]: g for g in CIE10_DATA}
+        grupo_id = f1.selectbox(
+            L("1. Grupo / capítulo", "1. Group / chapter"), [TODOS] + list(grupos),
+            format_func=lambda i: L("Todos los grupos", "All groups") if i == TODOS
+            else f"{i} · {td(grupos[i]['nombre'])}",
+        )
+        grupos_sel = CIE10_DATA if grupo_id == TODOS else [grupos[grupo_id]]
+        categorias = {c["id"]: c for g in grupos_sel for c in g["categories"]}
+        cat_id = f2.selectbox(
+            L("2. Categoría diagnóstica", "2. Diagnostic category"), [TODOS] + list(categorias),
+            format_func=lambda i: L("Todas las categorías", "All categories") if i == TODOS
+            else f"{i} · {td(categorias[i]['nombre'])}",
+        )
+        cats_sel = list(categorias.values()) if cat_id == TODOS else [categorias[cat_id]]
+        subcats = {s["code"]: s for c in cats_sel for s in c["subcategories"]}
+        sub_id = f3.selectbox(
+            L("3. Subcategoría específica", "3. Specific subcategory"), [TODOS] + list(subcats),
+            format_func=lambda i: L("Todas las subcategorías", "All subcategories") if i == TODOS
+            else f"{i} · {td(subcats[i]['name'])}",
+        )
+        subs_sel = list(subcats.values()) if sub_id == TODOS else [subcats[sub_id]]
+        if subs_sel:
+            df = pd.DataFrame([{
+                L("Código", "Code"): s["code"], L("Nombre", "Name"): td(s["name"]),
+                L("Casos", "Cases"): s["count"],
+            } for s in subs_sel])
+            st.dataframe(df, width="stretch", hide_index=True)
+            st.caption(L(
+                f"Se muestran {len(df)} registros de ejemplo con {int(df.iloc[:, 2].sum())} casos en total. "
+                "Estos recuentos no corresponden a un expediente clínico real.",
+                f"Showing {len(df)} sample entries with {int(df.iloc[:, 2].sum())} cases in total. "
+                "These counts do not represent real patient records.",
+            ))
+        else:
+            st.info(L("Sin resultados para este filtro. Elige otra combinación.",
+                      "No results for this filter. Choose another combination."))
+
+        st.subheader(L("Recursos educativos en video", "Educational video resources"))
+        st.caption(L(
+            "Material breve y orientativo para trastornos frecuentes de salud mental. Este contenido es educativo y no reemplaza la evaluación clínica.",
+            "Short, supportive material for common mental health conditions. This content is educational and does not replace clinical assessment.",
+        ))
+        for r in RECURSOS:
+            with st.expander(L(*r["title"])):
+                st.write(L(*r["desc"]))
+                st.link_button(
+                    L("Ver videos en YouTube", "Watch videos on YouTube"),
+                    f"https://www.youtube.com/results?search_query={quote_plus(r['query'])}",
+                    key=f"yt_{r['query']}",
+                )
+
+
+# --- Evolución ------------------------------------------------------------
+if perfil_demo != "Paciente":
+    with tab_analitica:
+        st.subheader(L("Evolución por nivel de riesgo", "Risk-level trends"))
+        todas = obtener_alertas()
+        pacientes_con_datos = list(dict.fromkeys(a[1] for a in todas)) or [nombre_paciente]
+        elegido = st.selectbox(
+            L("Paciente", "Patient"), pacientes_con_datos,
+            index=pacientes_con_datos.index(nombre_paciente) if nombre_paciente in pacientes_con_datos else 0,
+        )
+        historial = [a for a in todas if a[1] == elegido]
+        if not historial:
+            st.info(L(
+                "No hay datos suficientes para mostrar la evolución. Registra una primera alerta desde el simulador.",
+                "There is not enough data to display trends. Record a first alert from the simulator.",
+            ))
+        else:
+            df = pd.DataFrame(historial, columns=[
+                "id", "nombre", "fecha", "tipo", "transcripcion", "nivel", "resumen", "phq9", "estado"])
+            conteo = df.groupby("nivel").size().reindex(list(NIVELES), fill_value=0).reset_index()
+            conteo.columns = ["nivel", "cantidad"]
+            conteo["etiqueta"] = conteo["nivel"].map(etiqueta_nivel)
+            fig = px.bar(
+                conteo, x="etiqueta", y="cantidad", color="nivel",
+                color_discrete_map={k: v[3] for k, v in NIVELES.items()},
+                labels={"etiqueta": L("Nivel", "Level"), "cantidad": L("Cantidad", "Count")},
+                title=L(f"Alertas por nivel · {elegido}", f"Alerts by level · {elegido}"),
             )
+            fig.update_layout(
+                showlegend=False, plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                font=dict(family="Inter, sans-serif", color="#192436"),
+                margin=dict(l=16, r=16, t=48, b=16),
+            )
+            fig.update_yaxes(gridcolor="#DDE2EA", dtick=1)
+            st.plotly_chart(fig, width="stretch")
+            tabla = df[["fecha", "nivel", "resumen", "estado"]].copy()
+            tabla["estado"] = tabla["estado"].map(estado_txt)
+            tabla.columns = [L("Fecha", "Date"), L("Nivel", "Level"),
+                             L("Resumen", "Summary"), L("Estado", "Status")]
+            st.dataframe(tabla, width="stretch", hide_index=True)
 
-with tab_analitica:
-    if alertas:
-        df = pd.DataFrame(alertas, columns=["id", "nombre", "fecha", "tipo", "transcripcion", "nivel", "resumen", "phq9", "estado"])
-        df["nivel"] = df["nivel"].fillna("E")
-        pacientes_unicos = df["nombre"].unique().tolist()
-        paciente_filtro = st.selectbox(tr("Seleccionar paciente para ver historial:"), pacientes_unicos)
-        df_paciente = df[df["nombre"] == paciente_filtro]
-        df_vista = df_paciente[["fecha", "nivel", "resumen", "estado"]].rename(
-            columns={
-                "fecha": tr("fecha"),
-                "nivel": tr("nivel"),
-                "resumen": tr("resumen"),
-                "estado": tr("estado"),
-            }
-        )
-        if CURRENT_LANGUAGE == "English":
-            df_vista[tr("estado")] = df_vista[tr("estado")].map(tr)
-        st.dataframe(df_vista, use_container_width=True)
 
-        fig = px.bar(
-            df_paciente.groupby("nivel").size().reset_index(name="cantidad"),
-            x="nivel",
-            y="cantidad",
-            color="nivel",
-            title=tr("Evolución por nivel de riesgo para {name}", name=paciente_filtro),
-        )
-        fig.update_layout(
-            xaxis_title=tr("nivel"),
-            yaxis_title=tr("cantidad"),
-            legend_title_text=tr("nivel"),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+# --- Simulador ------------------------------------------------------------
+with tab_simulador:
+    render_simulador()
+
+
+# --- Apoyo / Recursos -----------------------------------------------------
+with tab_support:
+    if perfil_demo == "Paciente":
+        st.subheader(L("Apoyo para ti", "Support for you"))
+        st.caption(L(
+            "Los recursos se relacionan con temas de tu ficha de demostración. Son educativos, no un diagnóstico ni un plan de tratamiento.",
+            "Resources are matched to topics in your demo record. They are educational, not a diagnosis or treatment plan.",
+        ))
+        st.markdown(f"**{L('¿Cómo te sientes ahora?', 'How are you feeling right now?')}**")
+        st.caption(L("Elige la opción que mejor describa cómo te sientes. No hay respuestas correctas o incorrectas.",
+                     "Choose the option that best describes how you feel. There are no right or wrong answers."))
+        with st.form("form_checkin_animo"):
+            animo = st.radio(
+                L("Ánimo actual", "Current mood"), [a[0] for a in ANIMOS], horizontal=True,
+                index=2, label_visibility="collapsed",
+                format_func=lambda e: next(f"{a[0]} {L(a[1], a[2])}" for a in ANIMOS if a[0] == e),
+            )
+            guardar_animo = st.form_submit_button(L("Guardar cómo me siento", "Save my check-in"))
+        if guardar_animo:
+            st.session_state["patient_mood_checkin"] = animo
+        if "patient_mood_checkin" in st.session_state:
+            st.success(L(
+                f"Gracias por compartirlo: {st.session_state['patient_mood_checkin']}. "
+                "Queda solo en esta sesión de demostración y no se envía al equipo de salud.",
+                f"Thanks for sharing: {st.session_state['patient_mood_checkin']}. "
+                "This stays in this demo session and is not sent to the care team.",
+            ))
     else:
-        st.info(tr("No hay datos suficientes para graficar la evolución. Haz clic en el simulador para registrar una primera alerta."))
+        st.subheader(L(f"Recursos de apoyo · {nombre_paciente}", f"Support resources · {nombre_paciente}"))
+        st.caption(L(
+            "Los recursos se relacionan con la ficha del paciente seleccionado y son solo orientativos; valídalos con el equipo tratante.",
+            "Resources are matched to the selected patient's record for educational reference only; validate them with the care team.",
+        ))
+
+    texto_ficha = normalizar_texto(" ".join(
+        str(perfil_actual.get(c, "")) for c in ("antecedentes", "motivo", "sintomas")))
+    relacionados = [
+        r for r in RECURSOS
+        if any(normalizar_texto(k) in texto_ficha for k in r["keywords"])
+    ]
+    if not relacionados:
+        st.info(L(
+            "No hay recursos relacionados con los temas de esta ficha. Actualiza la ficha para ver sugerencias.",
+            "No resources match the topics in this record. Update the record to see suggestions.",
+        ))
+    for r in relacionados:
+        titulo = L(*r["title"])
+        puntos = r["support"][1] if st.session_state.language == "English" else r["support"][0]
+        items = "".join(f"<li>{p}</li>" for p in puntos)
+        card(
+            f"<h4>{titulo}</h4><div class='meta'>{L(*r['desc'])}</div>"
+            f"<p style='margin:12px 0 4px;font-weight:600'>{L('Ideas de apoyo general', 'General support ideas')}</p>"
+            f"<ul style='margin:0 0 0 18px'>{items}</ul>"
+        )
+        st.link_button(
+            L("Ver videos en YouTube", "Watch videos on YouTube"),
+            f"https://www.youtube.com/results?search_query={quote_plus(r['query'])}",
+        )
+    texto_sintomas = normalizar_texto(
+        f"{perfil_actual.get('motivo', '')} {perfil_actual.get('sintomas', '')}")
+    if any(t in texto_sintomas for t in ("dolor en el pecho", "presion toracica", "chest pain")):
+        st.warning(L(
+            "El dolor o la presión en el pecho no deben atribuirse automáticamente a la ansiedad. "
+            "Si son nuevos o intensos, o aparecen con dificultad para respirar o desmayo, busca atención médica urgente.",
+            "Chest pain should not automatically be attributed to anxiety. For new or severe chest pain, "
+            "trouble breathing, or fainting, seek urgent medical care.",
+        ))
+    st.caption(L(
+        "Estas ideas generales no reemplazan la atención profesional. No cambies medicamentos sin hablar con quien los indicó. "
+        "Si hay peligro inmediato, contacta los servicios de emergencia locales (en Chile: SAMU 131 o Salud Responde *4141) o al equipo de salud.",
+        "These general ideas do not replace professional care. Do not change medication without talking to the prescriber. "
+        "For immediate danger, contact local emergency services (in Chile: SAMU 131 or Salud Responde *4141) or the care team.",
+    ))
