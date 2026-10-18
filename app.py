@@ -505,39 +505,86 @@ if LOGO_SIDEBAR.exists():
 
 st.sidebar.selectbox("Language / Idioma", LANGS, key="language")
 
+if "mostrar_selectores_demo" not in st.session_state:
+    st.session_state.mostrar_selectores_demo = True
+if "perfil_demo_actual" not in st.session_state:
+    st.session_state.perfil_demo_actual = "Paciente"
+if "paciente_demo_actual" not in st.session_state:
+    st.session_state.paciente_demo_actual = next(iter(PACIENTES_INICIALES))
+if "nombre_paciente_nuevo_actual" not in st.session_state:
+    st.session_state.nombre_paciente_nuevo_actual = L("Juan Pérez", "Juan Perez")
+
+
+def alternar_selectores_demo():
+    if "perfil_demo_seleccionado" in st.session_state:
+        st.session_state.perfil_demo_actual = st.session_state.perfil_demo_seleccionado
+    if "paciente_seleccionado" in st.session_state:
+        st.session_state.paciente_demo_actual = st.session_state.paciente_seleccionado
+    if "nombre_paciente_nuevo" in st.session_state:
+        st.session_state.nombre_paciente_nuevo_actual = st.session_state.nombre_paciente_nuevo
+    st.session_state.mostrar_selectores_demo = not st.session_state.mostrar_selectores_demo
+
+st.sidebar.button(
+    L("Ocultar panel de selección", "Hide selection panel")
+    if st.session_state.mostrar_selectores_demo
+    else L("Mostrar panel de selección", "Show selection panel"),
+    icon=":material/visibility_off:"
+    if st.session_state.mostrar_selectores_demo
+    else ":material/visibility:",
+    use_container_width=True,
+    key="alternar_selectores_demo",
+    on_click=alternar_selectores_demo,
+)
+
 PERFILES = {
     "Paciente": ("Paciente", "Patient"),
     "Enfermería": ("Enfermería", "Nursing"),
     "Equipo tratante": ("Equipo tratante", "Care team"),
 }
-perfil_demo = st.sidebar.selectbox(
-    L("Ver la experiencia como", "View the experience as"),
-    list(PERFILES),
-    format_func=lambda p: L(*PERFILES[p]),
-)
-st.sidebar.caption(L(
-    "Selector de demo: no es inicio de sesión ni control de acceso.",
-    "Demo selector: this is not a login or access control.",
-))
-
 NUEVO = "__nuevo__"
 opciones_pacientes = list(PACIENTES_INICIALES) + [NUEVO]
-paciente_sel = st.sidebar.selectbox(
-    L("Paciente de prueba", "Demo patient"),
-    opciones_pacientes,
-    format_func=lambda p: L("Agregar nuevo paciente", "Add new patient") if p == NUEVO else p,
-    key="paciente_seleccionado",
-)
-if paciente_sel == NUEVO:
-    nombre_paciente = st.sidebar.text_input(
-        L("Nombre y apellido del nuevo paciente", "New patient's full name"),
-        value=L("Juan Pérez", "Juan Perez"),
-    ).strip()
-    if not nombre_paciente:
-        st.sidebar.warning(L("Ingresa un nombre para continuar.", "Enter a name to continue."))
-        st.stop()
+if st.session_state.mostrar_selectores_demo:
+    perfil_demo = st.sidebar.selectbox(
+        L("Ver la experiencia como", "View the experience as"),
+        list(PERFILES),
+        index=list(PERFILES).index(st.session_state.perfil_demo_actual),
+        format_func=lambda p: L(*PERFILES[p]),
+        key="perfil_demo_seleccionado",
+    )
+    st.session_state.perfil_demo_actual = perfil_demo
+    st.sidebar.caption(L(
+        "Selector de demo: no es inicio de sesión ni control de acceso.",
+        "Demo selector: this is not a login or access control.",
+    ))
+
+    paciente_sel = st.sidebar.selectbox(
+        L("Paciente de prueba", "Demo patient"),
+        opciones_pacientes,
+        index=opciones_pacientes.index(st.session_state.paciente_demo_actual),
+        format_func=lambda p: L("Agregar nuevo paciente", "Add new patient") if p == NUEVO else p,
+        key="paciente_seleccionado",
+    )
+    st.session_state.paciente_demo_actual = paciente_sel
+    if paciente_sel == NUEVO:
+        nombre_paciente_nuevo = st.sidebar.text_input(
+            L("Nombre y apellido del nuevo paciente", "New patient's full name"),
+            value=st.session_state.nombre_paciente_nuevo_actual,
+            key="nombre_paciente_nuevo",
+        ).strip()
+        st.session_state.nombre_paciente_nuevo_actual = nombre_paciente_nuevo
+        if not nombre_paciente_nuevo:
+            st.sidebar.warning(L("Ingresa un nombre para continuar.", "Enter a name to continue."))
+            st.stop()
+        nombre_paciente = nombre_paciente_nuevo
+    else:
+        nombre_paciente = paciente_sel
 else:
-    nombre_paciente = paciente_sel
+    perfil_demo = st.session_state.perfil_demo_actual
+    nombre_paciente = (
+        st.session_state.nombre_paciente_nuevo_actual
+        if st.session_state.paciente_demo_actual == NUEVO
+        else st.session_state.paciente_demo_actual
+    )
 
 if nombre_paciente not in st.session_state.pacientes:
     st.session_state.pacientes[nombre_paciente] = perfil_base()
