@@ -34,7 +34,8 @@ class MemoryStore:
             return {k: deepcopy(v) for k, v in self._patients.items() if k in actor.patients}
 
     def add_demo_patient(self, actor, name, profile):
-        if not actor.demo or not name.strip() or len(name) > 100:
+        if (not actor.demo or actor.role not in {'Enfermería', 'Equipo tratante'}
+                or not name.strip() or len(name) > 100):
             raise PermissionError('Demo-only operation')
         with self._lock:
             if len(self._patients) >= 100:

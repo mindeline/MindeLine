@@ -1,10 +1,10 @@
-# MindeLine — demo reforzada sin base de datos
+# MindeLine — prototipo de demostración
 
 Prototipo Streamlit bilingüe para explorar fichas y revisión de solicitudes de salud mental.
-**Solo datos sintéticos. No preparado para pacientes reales, decisiones clínicas ni emergencias.**
+**Solo cuentas y datos sintéticos. No preparado para pacientes reales, decisiones clínicas ni emergencias.**
 
-Esta revisión parte del ZIP de la rama `feature/mindeline-current-work` proporcionado por el usuario.
-No incluye una base de datos. El almacenamiento y el historial de acciones son temporales.
+No incluye una base de datos. Las fichas, solicitudes, auditoría y constancia de lectura son temporales.
+Consulta [PRIVACIDAD_Y_CONSENTIMIENTO.md](./PRIVACIDAD_Y_CONSENTIMIENTO.md) antes de probarla.
 
 ## Inicio local: PowerShell / Windows
 
@@ -14,6 +14,8 @@ Desde la carpeta que contiene `app.py` (Python 3.12 recomendado):
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
+# Reemplaza cada hash de ejemplo por uno generado localmente (instrucciones abajo).
 $env:MINDELINE_MODE = "demo"
 python -m streamlit run app.py
 ```
@@ -24,20 +26,24 @@ En macOS/Linux:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .streamlit/secrets.example.toml .streamlit/secrets.toml
 MINDELINE_MODE=demo python -m streamlit run app.py
 ```
 
-Abre http://localhost:8501. La configuración escucha solo en `127.0.0.1`.
-El modo demo requiere una selección explícita y no debe exponerse a Internet.
-Cada sesión de demo dispone de su propio repositorio aislado. Cambiar de rol dentro de la
-misma sesión permite probar el recorrido; otra ventana/sesión no comparte esos registros.
+Genera un hash para cada usuario con `python -c "from security import hash_demo_password; import getpass; print(hash_demo_password(getpass.getpass('Password (12+ characters): ')))"`
+y pégalo en su `password_hash` de `.streamlit/secrets.toml`. Define usuario, rol y pacientes ficticios
+en `[[demo.users]]`; no hay alta abierta ni elección libre de rol. No reutilices contraseñas personales.
+Abre http://localhost:8501. La configuración predeterminada escucha solo en `127.0.0.1`.
+Las cuentas locales son solo para pruebas, no un sistema de autenticación apto para producción.
+Las cuentas autorizadas del mismo proceso comparten el repositorio temporal para probar el recorrido.
+No expongas el modo demo a Internet.
 
 ## Acceso restringido opcional
 
 Sin `MINDELINE_MODE=demo`, la aplicación exige configuración de acceso y permanece bloqueada
 si esta falta. Ver **SEGURIDAD.md** y `.streamlit/secrets.example.toml`.
 Se usa el inicio de sesión OIDC de Streamlit y una lista de asignaciones del servidor.
-No hay contraseñas propias, alta de usuarios ni panel administrador.
+Las contraseñas locales solo están disponibles en modo demo.
 La conexión al proveedor OIDC debe configurarse y probarse antes de usar este modo.
 Sigue siendo una demo con datos sintéticos incluso con inicio de sesión.
 
@@ -61,14 +67,14 @@ Sigue siendo una demo con datos sintéticos incluso con inicio de sesión.
 
 ## Recorrido verificable sin proveedor de IA
 
-1. En modo demo, elige Paciente y un perfil ficticio.
+1. Inicia sesión con una cuenta demo asignada al rol Paciente y acepta el aviso.
 2. Envía un mensaje sin clave de Groq: queda registrado sin análisis.
-3. Cambia a Enfermería en la misma sesión.
-4. Abre Triaje, incluye **Sin evaluar**, toma el caso y escribe una nota para cerrarlo.
+3. Cierra sesión e inicia con una cuenta demo de Enfermería.
+4. Abre Triaje, toma el caso y escribe una nota de revisión.
 5. Consulta su historial de acciones.
 
-Reiniciar el proceso pierde todos esos datos. En modo demo, perder la sesión también los pierde.
-No existe un mecanismo de recuperación ni exportación de información clínica.
+Los roles y las asignaciones los configura el administrador local. Reiniciar el proceso pierde
+todos los datos. No existe mecanismo de recuperación ni exportación de información clínica.
 
 ## IA opcional
 
@@ -106,9 +112,10 @@ no ejecuta inferencias y no se ejecuta al importar el módulo.
 - `db.py`: repositorio **en memoria**, sin conexión a una base de datos.
 - `backend_ai.py`: validación y llamadas acotadas a Groq.
 - `security.py`: identidad y permisos independientes de la interfaz.
-- `access_ui.py`: puerta de entrada OIDC y configuración de modos.
+- `access_ui.py`: puerta de entrada de contraseña local para demo, OIDC restringido y aviso obligatorio.
 - `.streamlit/config.toml`: tema, escucha local, CORS/XSRF y tamaño de subida.
 - `SEGURIDAD.md`: configuración, límites y comprobaciones antes de compartir la app.
+- `PRIVACIDAD_Y_CONSENTIMIENTO.md`: resumen informativo del marco chileno y límites del aviso demo.
 - `tests/`: pruebas automatizadas sin servicios externos.
 
 ## Funciones que siguen siendo ejemplos o están pendientes

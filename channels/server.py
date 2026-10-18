@@ -99,15 +99,23 @@ FLOW_CHOICES={
     'appointment':(('appointment_yes','Sí'),('appointment_no','No puedo asistir')),
     'nursing':(('nursing_yes','Sí, por favor'),('nursing_no','No, gracias')),
     'destination':(('web','Abrir web'),('android','Abrir app Android')),
+    'consent':(('consent_accept','Acepto y continuar'),('consent_decline','No acepto')),
 }
 FLOW_QUESTIONS={
     'mood':'Hola 👋 Soy el bot de MindeLine. ¿Cómo te sientes hoy? Elige un emoji para continuar.\n'
-          'Esto no es una evaluación clínica. No guardamos tus respuestas en MindeLine. '
+          'Esto es un prototipo, no una evaluación clínica. No ingreses datos reales. '
+          'MindeLine no guarda tus respuestas; WhatsApp/Meta procesa tus mensajes según sus condiciones. '
           'Si estás en peligro inmediato, contacta los servicios de emergencia locales.',
     'medication':'1 de 3 · ¿Tomaste tu medicación como fue indicada?',
     'appointment':'2 de 3 · ¿Podrás asistir a tu próxima cita?',
     'nursing':'3 de 3 · ¿Quieres hablar con enfermería?',
     'destination':'Gracias por responder. ¿Cómo quieres continuar?',
+    'consent':'Antes de continuar: en un servicio real, tus respuestas podrían conservarse y ser '
+              'consultadas por profesionales de salud autorizados y asignados para atenderte. '
+              'Aceptar aquí solo simula tu decisión en este prototipo: no crea una cuenta ni guarda '
+              'o comparte el chat. No es consentimiento informado ni una firma legal. '
+              'Si aceptas, te enviaremos el enlace para solicitar acceso; el equipo debe habilitar '
+              'la cuenta. Puedes rechazar sin continuar.',
 }
 FLOW_ORDER=('mood','medication','appointment','nursing','destination')
 
@@ -121,11 +129,13 @@ def flow_prompt(sender, phase, reminder=False):
 
 def reply_payload(sender, choice, config):
     if choice=='web':
-        return message_payload(sender,'Abre MindeLine en la web e inicia sesión allí:\n'+config.web_url+
-            '\nEste enlace no inicia sesión automáticamente.')
+        return message_payload(sender,'Abre MindeLine en la web y contacta al equipo para solicitar '
+            'una cuenta:\n'+config.web_url+
+            '\nEl equipo debe revisar y habilitar tu acceso. Este enlace no registra ni inicia sesión automáticamente.')
     if choice=='android':
         return message_payload(sender,'Abre MindeLine para Android:\n'+config.gateway_url+'/open'+
-            '\nSi no tienes la app, el enlace mostrará las opciones disponibles.')
+            '\nContacta al equipo para solicitar una cuenta; debe revisar y habilitar tu acceso. '
+            'Si no tienes la app, el enlace mostrará las opciones disponibles.')
     return flow_prompt(sender,'mood')
 
 
@@ -154,6 +164,11 @@ def _choice_for(phase, raw):
     if phase=='destination':
         return {'web':'web','1':'web','android':'android','app':'android','2':'android'}.get(
             _normalized_text(raw))
+    if phase=='consent':
+        return {'acepto':'consent_accept','acepto y continuar':'consent_accept',
+                'si':'consent_accept','sí':'consent_accept',
+                'no acepto':'consent_decline','rechazar':'consent_decline',
+                'no':'consent_decline'}.get(_normalized_text(raw))
     return None
 
 
@@ -194,21 +209,28 @@ def advance_flow(sender, raw, config, sessions):
         return message_payload(sender,'Por ahora solo puedo responder mensajes escritos y opciones con botones. '
             'No escucho ni guardo audios; envíame tu respuesta por escrito o elige una opción.')
     now=time.monotonic()
-    for session_key,(_,expires) in list(sessions.items()):
+    for session_key,(_,expires,_) in list(sessions.items()):
         if expires<=now:sessions.pop(session_key)
     key=hashlib.sha256(sender.encode()).hexdigest()
     if key not in sessions and len(sessions)>=5000:
         return message_payload(sender,'No es posible iniciar otra conversación ahora. Inténtalo más tarde.')
-    phase=sessions.get(key,('mood',0))[0]
+    phase,_,destination=sessions.get(key,('mood',0,None))
     choice=_choice_for(phase,raw)
     if phase=='destination' and choice in {'web','android'}:
+        sessions[key]=('consent',now+30*60,choice)
+        return flow_prompt(sender,'consent')
+    if phase=='consent':
         sessions.pop(key,None)
-        return reply_payload(sender,choice,config)
+        if choice=='consent_accept':
+            return reply_payload(sender,destination,config)
+        if choice=='consent_decline':
+            return message_payload(sender,'No se continuará con el registro. El prototipo no guardó '
+                'ni compartió tus respuestas. Gracias por participar.')
     if not choice:
-        sessions[key]=(phase,now+30*60)
+        sessions[key]=(phase,now+30*60,destination)
         return flow_prompt(sender,phase,reminder=True)
     next_phase=FLOW_ORDER[FLOW_ORDER.index(phase)+1]
-    sessions[key]=(next_phase,now+30*60)
+    sessions[key]=(next_phase,now+30*60,None)
     return flow_prompt(sender,next_phase)
 
 
@@ -219,7 +241,7 @@ def page(config, demo=False):
     web=(f'<a href="{esc(config.web_url,quote=True)}">Abrir MindeLine web</a>' if config.web_url else '<p>El enlace web aún no está configurado.</p>')
     apk=(f'<a class="secondary" href="{esc(config.apk_url,quote=True)}">Descargar APK de Android</a>' if config.apk_url else '<p class="note">La descarga de Android todavía no está disponible. Puedes continuar en la web.</p>')
     heading='Vista previa del acceso' if demo else 'Tu espacio MindeLine'
-    return f'''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MindeLine · Acceso</title><style>{STYLE}</style><main><small>MINDELINE</small><h1>{heading}</h1><p>Continúa desde tu navegador o desde la aplicación Android.</p>{web}{apk}<p class="note">El acceso a tu cuenta se realiza dentro de MindeLine. Esta demostración usa datos ficticios.</p><p class="note">Si ya instalaste la app, Android puede abrirla directamente al tocar este enlace desde WhatsApp, una vez verificada la asociación del dominio.</p></main></html>'''
+    return f'''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MindeLine · Acceso</title><style>{STYLE}</style><main><small>MINDELINE</small><h1>{heading}</h1><p>Continúa desde tu navegador o desde la aplicación Android.</p>{web}{apk}<p class="note">Para una cuenta nueva, contacta al equipo: debe revisar y habilitar el acceso. Este prototipo no tiene formulario de registro automático ni transfiere las respuestas del bot.</p><p class="note">Si ya instalaste la app, Android puede abrirla directamente al tocar este enlace desde WhatsApp, una vez verificada la asociación del dominio.</p></main></html>'''
 
 
 def bot_demo_page(config, step):
@@ -230,7 +252,7 @@ def bot_demo_page(config, step):
                        for index,(label,next_step) in enumerate(choices))
     if step=='mood':
         conversation='''<div class="bubble user">Hola</div><div class="bubble bot">Hola 👋 Soy el bot de MindeLine. ¿Cómo te sientes hoy? Elige un emoji.
-<small>No es una evaluación clínica. Esta simulación no guarda tus respuestas. Si estás en peligro inmediato, contacta los servicios de emergencia locales.</small>'''+options([('😄 Bien','medication'),('😐 Más o menos','medication'),('😟 Mal','medication')])+'</div>'
+<small>Prototipo: no ingreses datos reales. MindeLine no guarda tus respuestas; WhatsApp/Meta procesa tus mensajes según sus condiciones. No es una evaluación clínica. Si estás en peligro inmediato, contacta los servicios de emergencia locales.</small>'''+options([('😄 Bien','medication'),('😐 Más o menos','medication'),('😟 Mal','medication')])+'</div>'
     elif step=='medication':
         conversation='''<div class="bubble user">Elegí un emoji</div><div class="bubble bot">1 de 3 · ¿Tomaste tu medicación como fue indicada?'''+options([('Sí','appointment'),('No','appointment'),('A veces','appointment')])+'</div>'
     elif step=='appointment':
@@ -238,13 +260,19 @@ def bot_demo_page(config, step):
     elif step=='nursing':
         conversation='''<div class="bubble user">Respondí la pregunta 2</div><div class="bubble bot">3 de 3 · ¿Quieres hablar con enfermería?'''+options([('Sí, por favor','destination'),('No, gracias','destination')])+'</div>'
     elif step=='destination':
-        conversation='''<div class="bubble user">Respondí la pregunta 3</div><div class="bubble bot">Gracias. ¿Cómo quieres continuar?'''+options([('Abrir web','web'),('Abrir app Android','android')])+'</div>'
+        conversation='''<div class="bubble user">Respondí la pregunta 3</div><div class="bubble bot">Gracias. ¿Cómo quieres continuar?'''+options([('Abrir web','consent_web'),('Abrir app Android','consent_android')])+'</div>'
+    elif step in {'consent_web','consent_android'}:
+        destination='web' if step=='consent_web' else 'android'
+        conversation='''<div class="bubble user">Quiero continuar</div><div class="bubble bot">Antes de continuar: en un servicio real, tus respuestas podrían conservarse y ser consultadas por profesionales de salud autorizados y asignados para atenderte.
+<small>En este prototipo, aceptar solo simula tu decisión: no crea una cuenta ni guarda o comparte el chat. No es consentimiento informado ni una firma legal. Si aceptas, podrás solicitar acceso; el equipo debe habilitar la cuenta. Puedes rechazar sin continuar.</small>'''+options([('Acepto y continuar',destination),('No acepto','declined')])+'</div>'
+    elif step=='declined':
+        conversation='''<div class="bubble user">No acepto</div><div class="bubble bot">No se continuará con el registro. La simulación no guardó ni compartió tus respuestas. Gracias por participar.</div>'''
     elif step=='web':
-        conversation=f'''<div class="bubble user">Abrir web</div><div class="bubble bot">Abre MindeLine en la web e inicia sesión allí:
-<a href="{web_url}">Continuar a MindeLine (demo local)</a><small>Este enlace no inicia sesión automáticamente.</small></div>'''
+        conversation=f'''<div class="bubble user">Acepto y continuar</div><div class="bubble bot">Abre MindeLine y contacta al equipo para solicitar acceso. Esta demo no crea cuentas automáticamente; el equipo debe revisar y habilitar cada cuenta.
+<a href="{web_url}">Abrir MindeLine (demo local)</a><small>La simulación no guarda ni transfiere las respuestas del chat.</small></div>'''
     elif step=='android':
-        conversation=f'''<div class="bubble user">Abrir app Android</div><div class="bubble bot">La app Android todavía no está disponible en esta demostración.
-<a href="{web_url}">Continuar por la web</a></div>'''
+        conversation=f'''<div class="bubble user">Acepto y continuar</div><div class="bubble bot">La app Android todavía no está disponible en esta demostración. Para solicitar una cuenta nueva, contacta al equipo; debe revisar y habilitar cada acceso.
+<a href="{web_url}">Continuar por la web</a><small>La simulación no guarda ni transfiere las respuestas del chat.</small></div>'''
     else:
         conversation='''<div class="bubble user">Hola</div><div class="bubble bot">Envía “Hola” para comenzar. Primero te preguntaré cómo te sientes hoy y luego haré tres preguntas breves.
 <a href="/demo?step=mood">Enviar Hola</a></div>'''
@@ -268,7 +296,8 @@ def create_app(config=None, send=None):
         if not config.demo_web_url:
             return HTMLResponse(page(config,True))
         step=request.query_params.get('step','')
-        if step not in {'mood','medication','appointment','nursing','destination','web','android'}:
+        if step not in {'mood','medication','appointment','nursing','destination',
+                        'consent_web','consent_android','declined','web','android'}:
             step=''
         return HTMLResponse(bot_demo_page(config,step))
     async def assetlinks(request):

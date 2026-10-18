@@ -20,7 +20,6 @@ from security import Principal
 from access_ui import gate
 from html import escape
 from backend_ai import validate_audio
-from uuid import uuid4
 
 # ---------------------------------------------------------------------------
 # Configuración general
@@ -39,12 +38,12 @@ st.set_page_config(
     page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else None,
 )
 
-authenticated_principal, server_config = gate()
-DEMO = authenticated_principal is None
-
 LANGS = ["Español", "English"]
 if "language" not in st.session_state:
     st.session_state.language = "Español"
+
+authenticated_principal, server_config = gate()
+DEMO = authenticated_principal.demo
 
 
 UI_EN = st.session_state.get("language") == "English"
@@ -497,15 +496,11 @@ def normalizar_texto(texto):
 # ---------------------------------------------------------------------------
 
 @st.cache_resource
-def shared_store():
+def shared_store(scope):
     return MemoryStore(PACIENTES_INICIALES)
 
-if DEMO:
-    if '_demo_store' not in st.session_state:
-        st.session_state['_demo_store'] = MemoryStore(PACIENTES_INICIALES)
-    store = st.session_state['_demo_store']
-else:
-    store = shared_store()
+store_id = str(server_config.get('app', {}).get('store_id', 'default'))
+store = shared_store(('demo' if DEMO else 'restricted') + ':' + store_id)
 
 if "demo_cases" not in st.session_state:
     st.session_state.demo_cases = [dict(c) for c in CASOS_INICIALES]
@@ -534,30 +529,47 @@ if LOGO_SIDEBAR.exists():
 st.sidebar.selectbox("Language / Idioma", LANGS, key="language")
 
 if DEMO:
-    st.session_state.setdefault('_demo_identity', uuid4().hex)
-    perfil_demo = st.sidebar.selectbox(
-        L("Ver la experiencia como", "View the experience as"),
-        ["Paciente", "Enfermería", "Equipo tratante"], key="perfil_demo_seleccionado")
-    st.sidebar.caption(L("Selector de demostración; no autentica usuarios.", "Demo selector; does not authenticate users."))
-    # The session's demo repository never shares data with another browser session.
-    known = st.session_state.setdefault('_demo_names', list(PACIENTES_INICIALES))
-    principal = Principal(st.session_state['_demo_identity'] + ':' + perfil_demo,
-                          perfil_demo, frozenset(known), True)
-    paciente_sel = st.sidebar.selectbox(L("Paciente de prueba", "Demo patient"), known + ["__nuevo__"],
-        format_func=lambda x: L("Agregar paciente ficticio", "Add synthetic patient") if x=="__nuevo__" else x,
-        key="paciente_seleccionado")
-    if paciente_sel == "__nuevo__":
-        nombre_paciente = st.sidebar.text_input(L("Nombre ficticio", "Synthetic name"), max_chars=100).strip()
-        if not nombre_paciente: st.stop()
-        if nombre_paciente not in known:
-            try:
-                store.add_demo_patient(principal, nombre_paciente, perfil_base())
-            except (ValueError, PermissionError):
-                st.error(L("No se pudo agregar el paciente.", "Could not add patient.")); st.stop()
-            known.append(nombre_paciente)
+    principal = authenticated_principal
+    perfil_demo = principal.role
+    if perfil_demo != "Paciente":
+        assignments = st.session_state.setdefault('_demo_patient_assignments', {})
+        known = assignments.setdefault(principal.user_id, list(principal.patients))
         principal = Principal(principal.user_id, perfil_demo, frozenset(known), True)
+    authorized_patients = store.patients(principal)
+    if not authorized_patients:
+        st.error(L(
+            "La cuenta no tiene pacientes ficticios asignados disponibles. Revisa su configuración.",
+            "This account has no available synthetic patient assignments. Check its configuration.",
+        ))
+        st.stop()
+    known = list(authorized_patients)
+    if perfil_demo == "Paciente":
+        nombre_paciente = next(iter(authorized_patients))
     else:
-        nombre_paciente = paciente_sel
+        paciente_sel = st.sidebar.selectbox(
+            L("Paciente de prueba", "Demo patient"),
+            known + ["__nuevo__"],
+            format_func=lambda x: L("Agregar paciente ficticio", "Add synthetic patient") if x == "__nuevo__" else x,
+            key="paciente_seleccionado",
+        )
+        if paciente_sel == "__nuevo__":
+            nombre_paciente = st.sidebar.text_input(
+                L("Nombre ficticio", "Synthetic name"), max_chars=100
+            ).strip()
+            if not nombre_paciente:
+                st.stop()
+            if nombre_paciente not in known:
+                try:
+                    store.add_demo_patient(principal, nombre_paciente, perfil_base())
+                except (ValueError, PermissionError):
+                    st.error(L("No se pudo agregar el paciente.", "Could not add patient."))
+                    st.stop()
+                known.append(nombre_paciente)
+            principal = Principal(
+                principal.user_id, perfil_demo, frozenset(known), True
+            )
+        else:
+            nombre_paciente = paciente_sel
 else:
     principal = authenticated_principal
     perfil_demo = principal.role

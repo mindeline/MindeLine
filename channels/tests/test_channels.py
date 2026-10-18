@@ -48,7 +48,7 @@ def test_menu_and_duplicate_detection(cfg):
 def test_whatsapp_flow_mood_three_questions_then_web(cfg):
     sent=[]
     async def send(p):sent.append(p)
-    choices=['hola','mood_bad','med_no','appointment_no','nursing_yes','web']
+    choices=['hola','mood_bad','med_no','appointment_no','nursing_yes','web','consent_accept']
     with TestClient(create_app(cfg,send)) as c:
         for index,choice in enumerate(choices):
             b,h=body_headers(payload(choice,mid='wamid.flow.'+str(index)),cfg)
@@ -58,22 +58,49 @@ def test_whatsapp_flow_mood_three_questions_then_web(cfg):
     assert '2 de 3' in sent[2]['interactive']['body']['text']
     assert '3 de 3' in sent[3]['interactive']['body']['text']
     assert [b['reply']['id'] for b in sent[4]['interactive']['action']['buttons']]==['web','android']
-    assert 'https://web.example.com' in sent[5]['text']['body']
+    assert 'Antes de continuar' in sent[5]['interactive']['body']['text']
+    assert 'https://web.example.com' in sent[6]['text']['body']
+    assert 'habilitar tu acceso' in sent[6]['text']['body']
 
 def test_whatsapp_flow_android_destination(cfg):
     sent=[]
     async def send(p):sent.append(p)
-    choices=['hola','😄','sí','sí','no','android']
+    choices=['hola','😄','sí','sí','no','android','consent_accept']
     with TestClient(create_app(cfg,send)) as c:
         for index,choice in enumerate(choices):
             b,h=body_headers(payload(choice,mid='wamid.android.'+str(index)),cfg)
             assert c.post('/webhook',content=b,headers=h).status_code==200
     assert 'https://access.example.com/open' in sent[-1]['text']['body']
 
+def test_whatsapp_flow_declining_consent_closes_without_link(cfg):
+    sent=[]
+    async def send(p):sent.append(p)
+    choices=['hola','mood_bad','med_no','appointment_no','nursing_yes','web','consent_decline']
+    with TestClient(create_app(cfg,send)) as c:
+        for index,choice in enumerate(choices):
+            b,h=body_headers(payload(choice,mid='wamid.decline.'+str(index)),cfg)
+            assert c.post('/webhook',content=b,headers=h).status_code==200
+    assert [button['reply']['id'] for button in sent[5]['interactive']['action']['buttons']]==[
+        'consent_accept','consent_decline']
+    assert 'no se continuará' in sent[6]['text']['body'].casefold()
+    assert 'no guardó ni compartió' in sent[6]['text']['body'].casefold()
+    assert all('https://web.example.com' not in message.get('text',{}).get('body','') for message in sent[6:])
+
+def test_whatsapp_flow_consent_reminder_keeps_selected_destination(cfg):
+    sent=[]
+    async def send(p):sent.append(p)
+    choices=['hola','mood_good','med_yes','appointment_yes','nursing_no','android','invalid','consent_accept']
+    with TestClient(create_app(cfg,send)) as c:
+        for index,choice in enumerate(choices):
+            b,h=body_headers(payload(choice,mid='wamid.reminder.'+str(index)),cfg)
+            assert c.post('/webhook',content=b,headers=h).status_code==200
+    assert 'Elige una de las opciones' in sent[6]['interactive']['body']['text']
+    assert 'https://access.example.com/open' in sent[7]['text']['body']
+
 def test_whatsapp_flow_accepts_typed_answers_and_explains_audio(cfg):
     sent=[]
     async def send(p):sent.append(p)
-    choices=['hola','😐 Más o menos','A veces','No puedo asistir','Sí, por favor','app']
+    choices=['hola','😐 Más o menos','A veces','No puedo asistir','Sí, por favor','app','consent_accept']
     with TestClient(create_app(cfg,send)) as c:
         for index,choice in enumerate(choices):
             b,h=body_headers(payload(choice,mid='wamid.typed.'+str(index),message_type='text'),cfg)
@@ -121,10 +148,16 @@ def test_local_bot_demo_links_to_mindeline_without_whatsapp():
         assert '¿Podrás asistir a tu próxima cita?' in c.get('/demo',params={'step':'appointment'}).text
         assert '¿Quieres hablar con enfermería?' in c.get('/demo',params={'step':'nursing'}).text
         end=c.get('/demo',params={'step':'destination'}).text
-        assert 'Abrir web' in end and 'Abrir app Android' in end
+        assert 'consent_web' in end and 'consent_android' in end
+        consent=c.get('/demo',params={'step':'consent_web'}).text
+        assert 'aceptar solo simula tu decisión' in consent
+        assert 'declined' in consent and 'web' in consent
         web=c.get('/demo',params={'step':'web'}).text
-        assert 'Continuar a MindeLine (demo local)' in web
+        assert 'Abrir MindeLine (demo local)' in web
+        assert 'no guarda ni transfiere' in web
         assert config.demo_web_url in web
+        declined=c.get('/demo',params={'step':'declined'}).text
+        assert 'no guardó ni compartió tus respuestas' in declined
         assert 'todavía no está disponible' in c.get('/demo',params={'step':'android'}).text
         assert c.post('/webhook',json={}).status_code==503
 

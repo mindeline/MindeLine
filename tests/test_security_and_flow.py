@@ -3,7 +3,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from security import Principal, resolve_principal
+from security import (
+    Principal, hash_demo_password, resolve_demo_principal, resolve_principal,
+)
 from db import MemoryStore
 from backend_ai import validate_result, validate_audio
 
@@ -30,6 +32,35 @@ def test_identity_bound_to_subject_not_email():
     cfg=[dict(issuer='issuer',subject='123',role='Paciente',patients=['p1'])]
     user=resolve_principal(dict(iss='issuer',sub='123',email='not-used@example.test'),cfg)
     assert user.patients==frozenset({'p1'})
+
+def test_demo_login_uses_configured_role_and_patient_scope():
+    password_hash=hash_demo_password('synthetic-test-password')
+    accounts=[
+        dict(username='patient.demo',password_hash=password_hash,role='Paciente',patients=['p1']),
+        dict(username='nurse.demo',password_hash=password_hash,role='Enfermería',patients=['p1','p2']),
+    ]
+    patient_user=resolve_demo_principal('PATIENT.DEMO','synthetic-test-password',accounts)
+    nurse_user=resolve_demo_principal('nurse.demo','synthetic-test-password',accounts)
+    assert patient_user.role=='Paciente' and patient_user.patients==frozenset({'p1'})
+    assert nurse_user.role=='Enfermería' and nurse_user.demo
+    with pytest.raises(PermissionError):
+        resolve_demo_principal('patient.demo','incorrect-password',accounts)
+    with pytest.raises(PermissionError):
+        resolve_demo_principal('unknown','synthetic-test-password',accounts)
+
+def test_demo_login_rejects_duplicate_accounts_and_patient_role_escalation():
+    password_hash=hash_demo_password('synthetic-test-password')
+    account=dict(username='test.user',password_hash=password_hash,role='Paciente',patients=['p1'])
+    with pytest.raises(PermissionError):
+        resolve_demo_principal('test.user','synthetic-test-password',[account,account])
+    with pytest.raises(PermissionError):
+        resolve_demo_principal('test.user','synthetic-test-password',[
+            dict(account,role='Administrador')
+        ])
+
+def test_demo_patient_cannot_add_other_patients(store,patient):
+    with pytest.raises(PermissionError):
+        store.add_demo_patient(patient,'p3',PROFILE)
 
 @pytest.mark.parametrize('role,patients',[('Admin',['p1']),('Paciente',['p1','p2']),('Paciente',[]),('Enfermería','p1')])
 def test_bad_access_config_denied(role,patients):

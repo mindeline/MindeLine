@@ -8,15 +8,29 @@ persistencia, consentimiento clínico, retención, validación de triage o proto
 
 ## Dos modos sin mezcla de datos
 
-- **demo**: debe habilitarse explícitamente con `MINDELINE_MODE=demo`; perfiles intercambiables,
-  repositorio por sesión, sin autenticación. Solo ejecución local para demostración.
+- **demo**: debe habilitarse explícitamente con `MINDELINE_MODE=demo`; usa cuentas locales
+  preconfiguradas con contraseñas PBKDF2, roles y pacientes asignados en `secrets.toml`.
+  No hay registro abierto ni selección de rol por el usuario. Solo ejecución local y datos sintéticos.
 - **restricted**: valor predeterminado. OIDC identifica a la persona; una lista del servidor decide
   su rol y pacientes permitidos. Configuración ausente o inválida bloquea el acceso.
   Comparte un repositorio temporal entre usuarios autorizados **del mismo proceso**.
 
 Los permisos se verifican al consultar pacientes, solicitudes, audio, historial y al modificar
-fichas o casos. Ocultar pestañas es solo un complemento. No existen administradores ni registro abierto.
-En demo, el selector puede cambiar voluntariamente de identidad: nunca es una barrera de seguridad.
+fichas o casos. Ocultar pestañas es solo un complemento. No existe registro abierto.
+Los hashes de contraseñas demo y las asignaciones se guardan en `.streamlit/secrets.toml`, que no
+debe publicarse. PBKDF2 reduce el riesgo de exposición accidental, pero no convierte las cuentas
+locales de prueba en un sistema apto para producción.
+
+Para generar el hash de una contraseña nueva (mínimo 12 caracteres), desde la raíz del proyecto:
+
+```powershell
+python -c "from security import hash_demo_password; import getpass; print(hash_demo_password(getpass.getpass('Password (12+ characters): ')))"
+```
+
+Pega el valor resultante en `password_hash` de la cuenta correspondiente en `[[demo.users]]`.
+Usa contraseñas únicas de prueba, no credenciales personales. El proceso demo no verifica correo,
+no ofrece recuperación de contraseña ni limita intentos de inicio de sesión; no lo expongas a Internet.
+Las contraseñas solo se usan para autenticar, no se guardan en la sesión.
 
 ## Configuración OIDC
 
@@ -46,6 +60,19 @@ El proveedor puede volver a autenticar sin pedir contraseña, según su propia p
 Configura MFA y política de reautenticación en el proveedor si el entorno lo requiere.
 No se han realizado pruebas con un proveedor OIDC real ni con un despliegue HTTPS en esta revisión.
 
+## Aviso previo obligatorio
+
+Antes de mostrar la interfaz, cada identidad debe confirmar que leyó el aviso del prototipo.
+La constancia contiene versión, identidad y hora UTC dentro de la sesión Streamlit; se pierde al
+cerrarla o reiniciar el proceso. No es una firma electrónica, consentimiento informado legal ni
+un registro durable de consentimiento. En el modo OIDC se exige la misma constancia; el proveedor
+de identidad sigue gestionando las credenciales.
+
+El aviso prohíbe ingresar datos reales, explica el almacenamiento temporal compartido entre cuentas
+del mismo proceso, la ausencia de vigilancia clínica y el envío opcional a Groq. La confirmación
+separada de IA no sustituye la autorización para tratar datos reales. Consulta
+[PRIVACIDAD_Y_CONSENTIMIENTO.md](./PRIVACIDAD_Y_CONSENTIMIENTO.md).
+
 ## Secretos y despliegue
 
 `secrets.toml` y `.env` están excluidos de Git. El archivo de ejemplo no contiene secretos.
@@ -59,7 +86,9 @@ URI OIDC, y revisar la infraestructura. No se incluye un despliegue público aut
 ## Datos y auditoría
 
 Todo vive en RAM. Se pierde al reiniciar y no se comparte entre varios procesos/réplicas.
-No usar múltiples workers como si compartieran una base de datos. El límite de 1.000 solicitudes
+Las identidades demo autorizadas de un mismo proceso comparten el repositorio; una cuenta Paciente
+solo accede a su asignación y los roles profesionales a las asignaciones configuradas. No usar
+múltiples workers como si compartieran una base de datos. El límite de 1.000 solicitudes
 rechaza nuevos registros, sin evicción silenciosa. El historial conserva como máximo 5.000 eventos
 por repositorio y no es inmutable ni durable. No reemplaza un registro de auditoría clínico.
 
@@ -79,8 +108,8 @@ con `finally` en operación normal; una terminación abrupta puede impedir esa l
 - La prioridad abierta no se reduce mientras permanezca abierta una alerta de mayor prioridad.
 - Cerrar exige responsable y nota, pero no valida que se haya realizado atención clínica.
 - No se envían SMS, emails, WhatsApp ni alertas externas; un aviso visual no equivale a notificación.
-- El consentimiento incluido solo confirma datos ficticios y envío al proveedor; no es un flujo
-  de consentimiento informado para datos de pacientes.
+- El aviso de entrada solo confirma lectura de las condiciones de la demo; no es consentimiento
+  informado ni habilita tratamiento de datos personales o de pacientes.
 
 ## Siguientes pasos antes de otro nivel de uso
 

@@ -17,18 +17,23 @@ ni representa una conexión real con WhatsApp.
 
 1. La persona escribe al número del bot; el bot pregunta cómo se siente y ofrece opciones con emojis.
 2. Después pregunta si tomó su medicación, si podrá asistir a su próxima cita y si quiere hablar con enfermería.
-3. Al terminar, ofrece **Abrir web** o **Abrir app Android**.
-4. Web: devuelve el enlace de la web existente. Android: devuelve `https://DOMINIO-DE-ACCESO/open`.
-5. Si la app está instalada y el dominio verificado, Android puede abrirla directamente.
-6. Sin la app o sin verificación, se abre una página con acceso web y, cuando se configure, descarga de APK.
-7. La persona inicia sesión en MindeLine; el mensaje de WhatsApp no autentica al paciente.
+3. Al terminar, la persona elige **Abrir web** o **Abrir app Android**.
+4. Antes de enviar el enlace, el bot muestra una simulación de consentimiento y ofrece aceptar o rechazar.
+5. Si acepta, recibe el enlace web o `https://DOMINIO-DE-ACCESO/open`; si rechaza, termina el flujo sin enviar enlace.
+6. La página informa que las cuentas nuevas deben solicitarse al equipo, que revisa y habilita el acceso.
+7. Si la app está instalada y el dominio verificado, Android puede abrirla directamente; si no, se muestran las opciones disponibles.
 
 Los enlaces no contienen nombre, teléfono, datos clínicos ni tokens de sesión.
 El bot no procesa audios, no analiza respuestas ni calcula prioridad. Las respuestas no se guardan ni se
-envían a MindeLine; el servicio conserva en memoria solo el paso actual de la conversación durante un máximo
-de 30 minutos para poder mostrar la pregunta siguiente. WhatsApp/Meta procesa los mensajes según sus propias
-condiciones. Si recibe audio, indica que se responda por escrito; no lo descarga, escucha ni transcribe.
-La encuesta es un prototipo, no una evaluación ni una recomendación clínica.
+envían a MindeLine; el servicio conserva en memoria solo el paso actual y destino elegido durante un máximo
+de 30 minutos para poder mostrar la pregunta siguiente. La elección de aceptar/rechazar tampoco se registra
+como consentimiento durable. El aviso indica que, en un servicio real, los datos de salud podrían ser
+consultados por profesionales autorizados y asignados; **en este prototipo, aceptar solo simula esa decisión:
+no crea una cuenta, no conserva ni comparte las respuestas y no es consentimiento informado ni firma legal**.
+La web actual no tiene formulario de registro automático; una cuenta nueva debe ser habilitada por el equipo.
+WhatsApp/Meta procesa los mensajes según sus propias condiciones. Si recibe audio, indica que se responda
+por escrito; no lo descarga, escucha ni transcribe. La encuesta es un prototipo, no una evaluación ni una
+recomendación clínica.
 La aplicación Android reutiliza la experiencia web alojada y necesita Internet.
 No aporta una base de datos ni acceso offline.
 
@@ -42,7 +47,7 @@ $env:MINDELINE_DEMO_WEB_URL = "http://127.0.0.1:8502"
 python -m uvicorn channels.server:app --host 127.0.0.1 --port 8080 --no-access-log
 ```
 
-Abre http://localhost:8080/demo y recorre **Enviar Hola → emoji → 3 preguntas → Abrir web/App**.
+Abre http://localhost:8080/demo y recorre **Enviar Hola → emoji → 3 preguntas → web/app → aceptar o rechazar**.
 Esto solo simula el intercambio del bot en el navegador y termina en la demo Streamlit. La URL de
 demostración solo acepta loopback en modo preview; no guarda las respuestas, no habilita el webhook
 ni envía nada a Meta.
