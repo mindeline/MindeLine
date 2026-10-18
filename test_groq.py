@@ -1,30 +1,20 @@
+"""Optional provider diagnostic. Never runs during import or automated tests."""
 import os
-from groq import Groq
 
-API_KEY = os.environ.get("GROQ_API_KEY")
-if not API_KEY:
-    raise RuntimeError("Set the GROQ_API_KEY environment variable before running this test.")
+def main():
+    from groq import Groq
+    key = os.environ.get("GROQ_API_KEY")
+    if not key:
+        print("Set GROQ_API_KEY before running this diagnostic.")
+        return 1
+    try:
+        with Groq(api_key=key, timeout=15, max_retries=0) as client:
+            for model in client.models.list().data:
+                print(model.id)
+        return 0
+    except Exception:
+        print("Provider check failed. Check configuration and connectivity.")
+        return 1
 
-client = Groq(api_key=API_KEY)
-
-try:
-    print("🔍 Consultando modelos disponibles en tu cuenta de Groq...")
-    modelos = client.models.list()
-    
-    lista_modelos = [m.id for m in modelos.data]
-    print("\n✅ Modelos activos encontrados en tu API Key:")
-    for m in lista_modelos:
-        print(f" - {m}")
-
-    # Seleccionar el primer modelo disponible para probar
-    modelo_prueba = lista_modelos[0]
-    print(f"\n🚀 Probando inferencia con: {modelo_prueba}...")
-    
-    res = client.chat.completions.create(
-        messages=[{"role": "user", "content": "Hola"}],
-        model=modelo_prueba
-    )
-    print(f"✅ ¡ÉXITO! Respuesta: {res.choices[0].message.content}")
-
-except Exception as e:
-    print(f"\n❌ Error al consultar la API: {e}")
+if __name__ == "__main__":
+    raise SystemExit(main())

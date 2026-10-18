@@ -15,7 +15,12 @@ import plotly.express as px
 import streamlit as st
 
 from backend_ai import procesar_audio_o_texto
-from db import actualizar_estado_alerta, guardar_alerta, init_db, obtener_alertas
+from db import MemoryStore
+from security import Principal
+from access_ui import gate
+from html import escape
+from backend_ai import validate_audio
+from uuid import uuid4
 
 # ---------------------------------------------------------------------------
 # Configuración general
@@ -34,14 +39,20 @@ st.set_page_config(
     page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else None,
 )
 
+authenticated_principal, server_config = gate()
+DEMO = authenticated_principal is None
+
 LANGS = ["Español", "English"]
 if "language" not in st.session_state:
     st.session_state.language = "Español"
 
 
+UI_EN = st.session_state.get("language") == "English"
+
+
 def L(es, en):
     """Texto de interfaz según el idioma elegido."""
-    return en if st.session_state.get("language") == "English" else es
+    return en if UI_EN else es
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +113,7 @@ p, li, label, .stMarkdown{ font-size:14px; line-height:20px; }
 div[data-testid="stMetric"], div[data-testid="stExpander"], div[data-testid="stAlert"], .ml-card{
   background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:none;
 }
+div[data-testid="stAlertContentWarning"] p{ color:var(--navy-800) !important; }
 div[data-testid="stMetric"]{ padding:16px; }
 div[data-testid="stMetricValue"]{ font-family:'Montserrat',sans-serif; font-weight:600; font-size:32px; line-height:40px; }
 div[data-testid="stMetricLabel"] p{ color:var(--ink-muted); font-size:12px; }
@@ -152,17 +164,25 @@ div[data-testid="stMetricLabel"] p{ color:var(--ink-muted); font-size:12px; }
 .ml-demo{ background:var(--teal-50); border:1px solid var(--teal-500); border-radius:8px;
   padding:8px 12px; color:var(--navy-800); font-size:12px; line-height:16px; margin-bottom:16px; }
 
+@media (max-width: 640px){
+  .block-container{padding-left:1rem;padding-right:1rem;}
+  .stTabs [role="tablist"]{overflow-x:auto;}
+  .stButton>button,.stFormSubmitButton>button,.stLinkButton>a{min-height:44px;}
+  .ml-card{overflow-wrap:anywhere;}
+}
 @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
 </style>
 """
 
 
 def badge_nivel(nivel):
-    clase, es, en, _ = NIVELES.get(nivel, ("silent", nivel, nivel, "#8C95A5"))
+    clase, es, en, _ = NIVELES.get(nivel, ("silent", "Sin evaluar", "Unassessed", "#8C95A5"))
     return f"<span class='ml-badge ml-{clase}'><span class='ml-dot'></span>{L(es, en)}</span>"
 
 
 def etiqueta_nivel(nivel):
+    if nivel not in NIVELES:
+        return L("Sin evaluar", "Unassessed")
     _, es, en, _ = NIVELES.get(nivel, ("silent", nivel, nivel, ""))
     return f"{L('Nivel', 'Level')} {nivel} · {L(es, en)}"
 
@@ -237,7 +257,7 @@ DATA_EN = {
 
 def td(texto):
     """Traduce datos sintéticos; los textos escritos por el usuario se dejan tal cual."""
-    if st.session_state.get("language") == "English":
+    if UI_EN:
         return DATA_EN.get(texto, texto)
     return texto
 
@@ -476,12 +496,20 @@ def normalizar_texto(texto):
 # Estado de sesión
 # ---------------------------------------------------------------------------
 
-init_db()
+@st.cache_resource
+def shared_store():
+    return MemoryStore(PACIENTES_INICIALES)
+
+if DEMO:
+    if '_demo_store' not in st.session_state:
+        st.session_state['_demo_store'] = MemoryStore(PACIENTES_INICIALES)
+    store = st.session_state['_demo_store']
+else:
+    store = shared_store()
 
 if "demo_cases" not in st.session_state:
     st.session_state.demo_cases = [dict(c) for c in CASOS_INICIALES]
-if "pacientes" not in st.session_state:
-    st.session_state.pacientes = {k: dict(v) for k, v in PACIENTES_INICIALES.items()}
+
 
 
 def perfil_base():
@@ -505,102 +533,55 @@ if LOGO_SIDEBAR.exists():
 
 st.sidebar.selectbox("Language / Idioma", LANGS, key="language")
 
-if "mostrar_selectores_demo" not in st.session_state:
-    st.session_state.mostrar_selectores_demo = True
-if "perfil_demo_actual" not in st.session_state:
-    st.session_state.perfil_demo_actual = "Paciente"
-if "paciente_demo_actual" not in st.session_state:
-    st.session_state.paciente_demo_actual = next(iter(PACIENTES_INICIALES))
-if "nombre_paciente_nuevo_actual" not in st.session_state:
-    st.session_state.nombre_paciente_nuevo_actual = L("Juan Pérez", "Juan Perez")
-
-
-def alternar_selectores_demo():
-    if "perfil_demo_seleccionado" in st.session_state:
-        st.session_state.perfil_demo_actual = st.session_state.perfil_demo_seleccionado
-    if "paciente_seleccionado" in st.session_state:
-        st.session_state.paciente_demo_actual = st.session_state.paciente_seleccionado
-    if "nombre_paciente_nuevo" in st.session_state:
-        st.session_state.nombre_paciente_nuevo_actual = st.session_state.nombre_paciente_nuevo
-    st.session_state.mostrar_selectores_demo = not st.session_state.mostrar_selectores_demo
-
-st.sidebar.button(
-    L("Ocultar panel de selección", "Hide selection panel")
-    if st.session_state.mostrar_selectores_demo
-    else L("Mostrar panel de selección", "Show selection panel"),
-    icon=":material/visibility_off:"
-    if st.session_state.mostrar_selectores_demo
-    else ":material/visibility:",
-    use_container_width=True,
-    key="alternar_selectores_demo",
-    on_click=alternar_selectores_demo,
-)
-
-PERFILES = {
-    "Paciente": ("Paciente", "Patient"),
-    "Enfermería": ("Enfermería", "Nursing"),
-    "Equipo tratante": ("Equipo tratante", "Care team"),
-}
-NUEVO = "__nuevo__"
-opciones_pacientes = list(PACIENTES_INICIALES) + [NUEVO]
-if st.session_state.mostrar_selectores_demo:
+if DEMO:
+    st.session_state.setdefault('_demo_identity', uuid4().hex)
     perfil_demo = st.sidebar.selectbox(
         L("Ver la experiencia como", "View the experience as"),
-        list(PERFILES),
-        index=list(PERFILES).index(st.session_state.perfil_demo_actual),
-        format_func=lambda p: L(*PERFILES[p]),
-        key="perfil_demo_seleccionado",
-    )
-    st.session_state.perfil_demo_actual = perfil_demo
-    st.sidebar.caption(L(
-        "Selector de demo: no es inicio de sesión ni control de acceso.",
-        "Demo selector: this is not a login or access control.",
-    ))
-
-    paciente_sel = st.sidebar.selectbox(
-        L("Paciente de prueba", "Demo patient"),
-        opciones_pacientes,
-        index=opciones_pacientes.index(st.session_state.paciente_demo_actual),
-        format_func=lambda p: L("Agregar nuevo paciente", "Add new patient") if p == NUEVO else p,
-        key="paciente_seleccionado",
-    )
-    st.session_state.paciente_demo_actual = paciente_sel
-    if paciente_sel == NUEVO:
-        nombre_paciente_nuevo = st.sidebar.text_input(
-            L("Nombre y apellido del nuevo paciente", "New patient's full name"),
-            value=st.session_state.nombre_paciente_nuevo_actual,
-            key="nombre_paciente_nuevo",
-        ).strip()
-        st.session_state.nombre_paciente_nuevo_actual = nombre_paciente_nuevo
-        if not nombre_paciente_nuevo:
-            st.sidebar.warning(L("Ingresa un nombre para continuar.", "Enter a name to continue."))
-            st.stop()
-        nombre_paciente = nombre_paciente_nuevo
+        ["Paciente", "Enfermería", "Equipo tratante"], key="perfil_demo_seleccionado")
+    st.sidebar.caption(L("Selector de demostración; no autentica usuarios.", "Demo selector; does not authenticate users."))
+    # The session's demo repository never shares data with another browser session.
+    known = st.session_state.setdefault('_demo_names', list(PACIENTES_INICIALES))
+    principal = Principal(st.session_state['_demo_identity'] + ':' + perfil_demo,
+                          perfil_demo, frozenset(known), True)
+    paciente_sel = st.sidebar.selectbox(L("Paciente de prueba", "Demo patient"), known + ["__nuevo__"],
+        format_func=lambda x: L("Agregar paciente ficticio", "Add synthetic patient") if x=="__nuevo__" else x,
+        key="paciente_seleccionado")
+    if paciente_sel == "__nuevo__":
+        nombre_paciente = st.sidebar.text_input(L("Nombre ficticio", "Synthetic name"), max_chars=100).strip()
+        if not nombre_paciente: st.stop()
+        if nombre_paciente not in known:
+            try:
+                store.add_demo_patient(principal, nombre_paciente, perfil_base())
+            except (ValueError, PermissionError):
+                st.error(L("No se pudo agregar el paciente.", "Could not add patient.")); st.stop()
+            known.append(nombre_paciente)
+        principal = Principal(principal.user_id, perfil_demo, frozenset(known), True)
     else:
         nombre_paciente = paciente_sel
 else:
-    perfil_demo = st.session_state.perfil_demo_actual
-    nombre_paciente = (
-        st.session_state.nombre_paciente_nuevo_actual
-        if st.session_state.paciente_demo_actual == NUEVO
-        else st.session_state.paciente_demo_actual
-    )
+    principal = authenticated_principal
+    perfil_demo = principal.role
+    authorized_patients = store.patients(principal)
+    if not authorized_patients:
+        st.error(L("No hay pacientes asignados disponibles.", "No assigned patients are available.")); st.stop()
+    nombre_paciente = st.sidebar.selectbox(L("Paciente asignado", "Assigned patient"), sorted(authorized_patients), key="paciente_seleccionado")
 
-if nombre_paciente not in st.session_state.pacientes:
-    st.session_state.pacientes[nombre_paciente] = perfil_base()
-
-with st.sidebar.expander(L("Configuración del análisis", "Analysis settings")):
-    groq_key = st.text_input("Groq API key", type="password", value="")
-    st.caption(L(
-        "La clave solo se usa para solicitar el análisis a Groq. No se guarda.",
-        "The key is only used to request the analysis from Groq. It is not stored.",
-    ))
-
+if perfil_demo == 'Paciente':
+    principal = Principal(principal.user_id, principal.role, frozenset({nombre_paciente}), principal.demo)
+st.session_state.pacientes = store.patients(principal)
 perfil_actual = st.session_state.pacientes[nombre_paciente]
+perfil_actual['riesgo'] = store.open_risk(principal, nombre_paciente)
+groq_key = os.environ.get('GROQ_API_KEY', server_config.get('groq', {}).get('api_key', ''))
+if DEMO and not groq_key:
+    with st.sidebar.expander(L("Configuración del análisis", "Analysis settings")):
+        groq_key = st.text_input("Groq API key", type="password")
+        st.caption(L("Solo datos ficticios. La clave se mantiene en esta sesión.", "Synthetic data only. The key stays in this session."))
+
+def obtener_alertas():
+    return store.alerts(principal)
 
 alertas = obtener_alertas()
-if perfil_demo == "Paciente":
-    alertas = [a for a in alertas if a[1] == nombre_paciente]
+st.sidebar.caption(L("Almacenamiento temporal: se pierde al reiniciar.", "Temporary storage: lost on restart."))
 
 
 # ---------------------------------------------------------------------------
@@ -672,116 +653,122 @@ def flujo_de_trabajo():
             )
 
 
-def mostrar_tarjeta_alerta(alerta):
-    alerta_id, nombre, fecha, _tipo, transcripcion, nivel, resumen, phq9, estado = alerta
-    titulo = f"{etiqueta_nivel(nivel)} · {nombre} · {estado_txt(estado)} · {fecha}"
-    with st.expander(titulo):
-        if nivel == "A":
-            st.error(L(
-                "Protocolo de crisis: derivar a SAMU 131 o Salud Responde *4141.",
-                "Crisis protocol: contact local emergency services (in Chile: SAMU 131 or Salud Responde *4141) "
-                "or the patient's care team immediately.",
-            ))
-        c1, c2 = st.columns([4, 1])
-        with c1:
-            st.markdown(badge_nivel(nivel), unsafe_allow_html=True)
-            st.write(f"**{L('Transcripción', 'Transcript')}:** “{transcripcion}”")
-            st.write(f"**{L('Síntesis', 'Summary')}:** {resumen}")
-            st.write(f"**{L('PHQ-9 estimado', 'Estimated PHQ-9')}:** {phq9}")
-        with c2:
-            if estado == "Pendiente":
-                if st.button(L("Tomar caso", "Take case"), key=f"tomar_{alerta_id}",
-                             width="stretch"):
-                    actualizar_estado_alerta(alerta_id, "En Atencion")
-                    st.rerun()
-
-
-def registrar_resultado(tipo, contenido, trans, json_res):
-    guardar_alerta(
-        nombre_paciente=nombre_paciente,
-        tipo_mensaje=tipo,
-        contenido=contenido,
-        transcripcion=trans,
-        nivel=json_res["nivel_riesgo"],
-        resumen=json_res["resumen_clinico"],
-        phq9=json_res.get("phq9_estimado", 0),
-    )
-    st.session_state.pacientes[nombre_paciente]["riesgo"] = json_res["nivel_riesgo"]
-    st.session_state.pacientes[nombre_paciente]["ultima_revision"] = "Reciente"
-
-
 def idioma_api():
     return "en" if st.session_state.language == "English" else "es"
 
 
-def render_simulador():
-    st.subheader(L("Simulador de mensajes", "Message simulator"))
-    st.caption(L(
-        "Procesa un mensaje de texto o una nota de voz con IA. Requiere conexión a Internet y una Groq API key.",
-        "Process a text message or voice note with AI. Requires an Internet connection and a Groq API key.",
-    ))
-    canales = {"texto": ("Texto", "Text message"), "audio": ("Nota de voz", "Voice note")}
-    canal = st.radio(
-        L("Canal de entrada", "Input method"), list(canales),
-        format_func=lambda c: L(*canales[c]), horizontal=True,
-    )
-    sin_clave = L("Ingresa la Groq API key en «Configuración del análisis» (barra lateral).",
-                  "Enter the Groq API key under “Analysis settings” (sidebar).")
+def analyze_request(rid):
+    record = store.begin_analysis(principal, rid)
+    path = None
+    try:
+        kwargs = dict(texto_ingresado=record['contenido'], idioma=idioma_api(),
+                      model=server_config.get('groq', {}).get('model'))
+        if record['tipo_mensaje'] == 'Audio':
+            with tempfile.NamedTemporaryFile(delete=False, suffix=record['suffix']) as tmp:
+                tmp.write(record['audio'])
+                path = tmp.name
+            kwargs = dict(audio_file_path=path, idioma=idioma_api(),
+                          model=server_config.get('groq', {}).get('model'))
+        transcript, result = procesar_audio_o_texto(groq_key, **kwargs)
+        store.finish_analysis(principal, rid, transcript, result)
+    except Exception:
+        # Never expose provider exceptions, keys or message text in logs/UI.
+        store.fail_analysis(principal, rid)
+        return False
+    finally:
+        if path and os.path.exists(path): os.remove(path)
+    return True
 
-    if canal == "texto":
-        texto = st.text_area(
-            L("Mensaje del paciente", "Patient message"),
-            value=L("Siento mucha angustia y dolor en el pecho, necesito ayuda.",
-                    "I feel very anxious and have chest pain. I need help."),
-            height=140,
-        )
-        if st.button(L("Enviar mensaje", "Send message")):
-            if not groq_key:
-                st.error(sin_clave)
-            elif not texto.strip():
-                st.error(L("Escribe un mensaje para enviar.", "Write a message to send."))
-            else:
+
+def mostrar_tarjeta_alerta(alerta):
+    rid, nombre, fecha, tipo, transcripcion, nivel, resumen, _, estado = alerta
+    record = store.get(principal, rid)
+    with st.expander(f"{etiqueta_nivel(nivel)} · {nombre} · {estado_txt(estado)} · {fecha}"):
+        st.caption(L("Sugerencia automática sin validar clínicamente.", "Automated suggestion, not clinically validated."))
+        if nivel == 'A':
+            st.error(L("Esta demo no contacta servicios ni envía alertas de emergencia. Ante peligro real, contacta los servicios de emergencia locales.",
+                       "This demo does not contact services or send emergency alerts. For real danger, contact local emergency services."))
+        st.markdown(badge_nivel(nivel), unsafe_allow_html=True)
+        st.text(transcripcion or record['contenido'])
+        st.text(resumen)
+        if record['alerta_frase']:
+            st.write(L("Frase de respaldo:", "Supporting phrase:")); st.text(record['alerta_frase'])
+        status_labels = {'pending': L('Pendiente de análisis','Awaiting analysis'),
+                         'processing': L('Analizando','Analyzing'),
+                         'failed': L('Análisis fallido; requiere revisión','Analysis failed; review required'),
+                         'complete': L('Análisis disponible','Analysis available')}
+        st.write(status_labels[record['analysis']])
+        if record['model']: st.caption(f"{record['model']} · {record['prompt_version']}")
+        if estado == 'Pendiente':
+            if st.button(L('Tomar caso','Take case'),key='take_'+rid):
                 try:
-                    with st.spinner(L("Analizando mensaje…", "Analyzing message…")):
-                        trans, res = procesar_audio_o_texto(
-                            groq_key, texto_ingresado=texto, idioma=idioma_api())
-                    registrar_resultado("Texto", texto, trans, res)
-                except Exception:
-                    st.error(L("No se pudo procesar el mensaje. Revisa la API key y tu conexión, e inténtalo de nuevo.",
-                               "The message could not be processed. Check the API key and your connection, then try again."))
-                else:
-                    st.success(L(f"Alerta registrada para {nombre_paciente}.",
-                                 f"Alert recorded for {nombre_paciente}."))
+                    store.transition(principal,rid,'En Atencion')
                     st.rerun()
-    else:
-        archivo = st.file_uploader(
-            L("Subir nota de voz (.mp3, .wav, .m4a)", "Upload a voice note (.mp3, .wav, .m4a)"),
-            type=["mp3", "wav", "m4a"],
-        )
-        if archivo and st.button(L("Procesar audio", "Process audio")):
-            if not groq_key:
-                st.error(sin_clave)
-            else:
-                ruta = None
-                try:
-                    sufijo = Path(archivo.name).suffix or ".wav"
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=sufijo) as tmp:
-                        tmp.write(archivo.getbuffer())
-                        ruta = tmp.name
-                    with st.spinner(L("Transcribiendo audio…", "Transcribing audio…")):
-                        trans, res = procesar_audio_o_texto(
-                            groq_key, audio_file_path=ruta, idioma=idioma_api())
-                    registrar_resultado("Audio", "[Nota de voz]", trans, res)
-                except Exception:
-                    st.error(L("No se pudo procesar el audio. Revisa la API key, el formato del archivo y tu conexión.",
-                               "The audio could not be processed. Check the API key, the file format, and your connection."))
+                except (PermissionError,ValueError):
+                    st.warning(L('El caso cambió. Actualiza la vista.','The case changed. Refresh the view.'))
+        elif estado == 'En Atencion':
+            st.write(L('Responsable:', 'Assigned reviewer:'),record['responsable'])
+            if record['responsable'] == principal.user_id:
+                note = st.text_area(L('Nota de revisión y acción realizada','Review note and action taken'),key='note_'+rid,max_chars=2000)
+                if st.button(L('Cerrar como revisado','Close as reviewed'),key='close_'+rid):
+                    try:
+                        store.transition(principal,rid,'Revisado',note)
+                        st.rerun()
+                    except (PermissionError,ValueError):
+                        st.warning(L('Añade una nota de al menos 3 caracteres y espera a que termine el análisis.',
+                                     'Add a note of at least 3 characters and wait for analysis to finish.'))
+        if record['note']: st.text(record['note'])
+        if estado != 'Revisado' and record['analysis'] in {'pending','failed'}:
+            if st.button(L('Reintentar análisis','Retry analysis'),key='retry_'+rid,disabled=not bool(groq_key) or not record['allow_ai']):
+                with st.spinner(L('Analizando…','Analyzing…')):
+                    try: analyze_request(rid)
+                    except (ValueError,PermissionError):
+                        st.warning(L('Reintento no disponible: espera 15 segundos; máximo 5 intentos.', 'Retry unavailable: wait 15 seconds; maximum 5 attempts.'))
+                st.rerun()
+        with st.expander(L('Historial de acciones (temporal)','Action history (temporary)')):
+            st.dataframe(pd.DataFrame(store.audit(principal,rid)),hide_index=True)
+
+
+def render_simulador():
+    st.subheader(L('Enviar actualización de prueba','Send a test update'))
+    st.caption(L('Solo datos ficticios. El análisis envía texto o audio a Groq.',
+                 'Synthetic data only. Analysis sends text or audio to Groq.'))
+    channel = st.radio(L('Canal de entrada','Input method'),['Texto','Audio'],horizontal=True,
+                       format_func=lambda c: L('Texto','Text') if c=='Texto' else L('Audio','Audio'))
+    text = st.text_area(L('Mensaje ficticio','Synthetic message'),max_chars=8000) if channel=='Texto' else ''
+    file = st.file_uploader(L('Audio ficticio: máximo 5 MiB','Synthetic audio: maximum 5 MiB'),type=['mp3','wav','m4a']) if channel=='Audio' else None
+    consent = st.checkbox(L('Confirmo que son datos ficticios y autorizo enviarlos a Groq para analizarlos.',
+                            'I confirm this is synthetic data and agree to send it to Groq for analysis.'))
+    if st.button(L('Registrar actualización','Record update')):
+        audio, suffix = None, None
+        try:
+            if channel=='Audio':
+                if file is None: raise ValueError('Missing file')
+                audio,suffix=file.getvalue(),Path(file.name).suffix.lower()
+                validate_audio(audio,suffix)
+            rid=store.submit(principal,nombre_paciente,channel,text if channel=='Texto' else '[Audio]',audio=audio,suffix=suffix,allow_ai=consent)
+        except (ValueError,PermissionError):
+            st.error(L('No se pudo registrar. Revisa el contenido, formato y límite de tamaño o capacidad.',
+                       'Could not record. Check the content, format, size or capacity limit.'))
+            return
+        record=store.get(principal,rid)
+        if consent and groq_key and record['analysis']=='pending':
+            with st.spinner(L('Analizando…','Analyzing…')):
+                try: analyze_request(rid)
+                except (ValueError,PermissionError): pass
+        st.session_state['_submission_notice']=rid
+        st.rerun()
+    if st.session_state.get('_submission_notice'):
+        try:
+            record=store.get(principal,st.session_state['_submission_notice'])
+            if record['nombre_paciente']==nombre_paciente:
+                if record['analysis']=='complete':
+                    st.success(L('Actualización registrada y analizada. Pendiente de revisión profesional.',
+                                 'Update recorded and analyzed. Awaiting professional review.'))
                 else:
-                    st.success(L(f"Audio procesado para {nombre_paciente}.",
-                                 f"Audio processed for {nombre_paciente}."))
-                    st.rerun()
-                finally:
-                    if ruta and os.path.exists(ruta):
-                        os.remove(ruta)
+                    st.warning(L('Actualización registrada en memoria, sin análisis válido. El equipo puede revisarla.',
+                                 'Update recorded in memory without a valid analysis. The team can review it.'))
+        except (PermissionError,KeyError): pass
 
 
 # ---------------------------------------------------------------------------
@@ -837,13 +824,13 @@ with tab_dashboard:
         st.write("")
         izquierda, derecha = st.columns([2, 1])
         with izquierda:
-            st.subheader(L("Estado clínico actual", "Current clinical status"))
+            st.subheader(L("Última actualización recibida", "Latest received update"))
             if alertas:
                 _id, nom, fecha, _t, _tr, nivel, resumen, _p, estado = alertas[0]
                 card(
-                    f"<h4>{nom}</h4>"
+                    f"<h4>{escape(nom)}</h4>"
                     f"<div class='meta'>{estado_txt(estado)} · {fecha}</div>"
-                    f"<p style='margin:8px 0'>{resumen}</p>{badge_nivel(nivel)}",
+                    f"<p style='margin:8px 0'>{escape(resumen)}</p>{badge_nivel(nivel)}",
                     nivel,
                 )
             else:
@@ -855,10 +842,10 @@ with tab_dashboard:
             st.subheader(L("Paciente activo", "Active patient"))
             riesgo = perfil_actual.get("riesgo", "E")
             card(
-                f"<h4>{nombre_paciente}</h4>"
+                f"<h4>{escape(nombre_paciente)}</h4>"
                 f"<div class='meta'>{L('Edad', 'Age')}: {perfil_actual.get('edad', 0)} "
                 f"{L('años', 'years')} · {L('Red de apoyo', 'Support network')}: "
-                f"{td(perfil_actual.get('red_apoyo', 'No'))}</div>"
+                f"{escape(td(perfil_actual.get('red_apoyo', 'No')))}</div>"
                 f"<div style='margin-top:8px'>{badge_nivel(riesgo)}</div>",
                 riesgo,
             )
@@ -872,7 +859,7 @@ with tab_ficha:
     cols[1].metric(L("Género", "Gender"), td(perfil_actual.get("genero", "-")))
     if perfil_demo != "Paciente":
         cols[2].metric(L("Última revisión", "Last review"), td(perfil_actual.get("ultima_revision", "Nunca")))
-        cols[3].metric(L("Riesgo actual", "Current risk"), perfil_actual.get("riesgo", "E"))
+        cols[3].metric(L("Prioridad abierta", "Open priority"), perfil_actual.get("riesgo", "E"))
 
     info1, info2 = st.columns(2)
     with info1:
@@ -889,9 +876,9 @@ with tab_ficha:
         st.write(td(perfil_actual.get("red_apoyo", "No")))
         if perfil_demo != "Paciente":
             estable = perfil_actual.get("riesgo", "E") in ("D", "E")
-            st.markdown(f"**{L('Estado general', 'Overall status')}**")
+            st.markdown(f"**{L('Prioridad de alertas abiertas', 'Open alert priority')}**")
             st.markdown(
-                badge_nivel("E" if estable else perfil_actual.get("riesgo", "C")),
+                badge_nivel(perfil_actual.get("riesgo", "Sin evaluar")),
                 unsafe_allow_html=True,
             )
 
@@ -908,40 +895,48 @@ with tab_ficha:
             "and provide follow-up as appropriate.",
         ))
 
-    with st.expander(L("Editar ficha", "Edit record")):
-        generos = ["Femenino", "Masculino", "No binario", "Prefiero no decirlo"]
-        genero_actual = perfil_actual.get("genero", "Femenino")
-        with st.form("form_ficha"):
-            f1, f2 = st.columns(2)
-            edad = f1.number_input(L("Edad", "Age"), 0, 120, int(perfil_actual.get("edad", 30)))
-            genero = f2.selectbox(
-                L("Género", "Gender"), generos,
-                index=generos.index(genero_actual) if genero_actual in generos else 0,
-                format_func=td,
-            )
-            antecedentes = st.text_area(L("Antecedentes relevantes", "Relevant medical history"),
-                                        value=perfil_actual.get("antecedentes", ""))
-            motivo_n = st.text_area(L("Motivo de consulta", "Reason for visit"),
-                                    value=perfil_actual.get("motivo", ""))
-            sintomas_n = st.text_area(L("Síntomas principales", "Main symptoms"),
-                                      value=perfil_actual.get("sintomas", ""))
-            tratamiento = st.text_area(L("Tratamiento / medicación", "Treatment / medication"),
-                                       value=perfil_actual.get("tratamiento", ""))
-            red_apoyo = st.radio(
-                L("Red de apoyo", "Support network"), ["Sí", "No"], horizontal=True,
-                index=0 if perfil_actual.get("red_apoyo", "Sí") == "Sí" else 1, format_func=td,
-            )
-            guardar = st.form_submit_button(L("Guardar ficha", "Save record"))
-        if guardar:
-            st.session_state.pacientes[nombre_paciente] = {
-                "edad": edad, "genero": genero, "antecedentes": antecedentes,
-                "motivo": motivo_n, "sintomas": sintomas_n, "tratamiento": tratamiento,
-                "red_apoyo": red_apoyo, "ultima_revision": "Ahora",
-                "riesgo": perfil_actual.get("riesgo", "E"),
-            }
-            st.success(L(f"Ficha actualizada para {nombre_paciente}.",
-                         f"Record updated for {nombre_paciente}."))
-            st.rerun()
+    if perfil_demo != "Paciente":
+        with st.expander(L("Editar ficha", "Edit record")):
+            snapshot_key = '_edit_' + nombre_paciente
+            editing_profile = st.session_state.setdefault(snapshot_key, dict(perfil_actual))
+            if st.button(L('Recargar ficha para editar', 'Reload record for editing'), key='reload_'+nombre_paciente):
+                st.session_state.pop(snapshot_key, None)
+                st.rerun()
+            generos = ["Femenino", "Masculino", "No binario", "Prefiero no decirlo"]
+            genero_actual = editing_profile.get("genero", "Femenino")
+            with st.form("form_ficha_" + nombre_paciente + str(editing_profile["_version"])):
+                f1, f2 = st.columns(2)
+                edad = f1.number_input(L("Edad", "Age"), 0, 120, int(editing_profile.get("edad", 30)))
+                genero = f2.selectbox(
+                    L("Género", "Gender"), generos,
+                    index=generos.index(genero_actual) if genero_actual in generos else 0,
+                    format_func=td,
+                )
+                antecedentes = st.text_area(L("Antecedentes relevantes", "Relevant medical history"),
+                                            value=editing_profile.get("antecedentes", ""))
+                motivo_n = st.text_area(L("Motivo de consulta", "Reason for visit"),
+                                        value=editing_profile.get("motivo", ""))
+                sintomas_n = st.text_area(L("Síntomas principales", "Main symptoms"),
+                                          value=editing_profile.get("sintomas", ""))
+                tratamiento = st.text_area(L("Tratamiento / medicación", "Treatment / medication"),
+                                           value=editing_profile.get("tratamiento", ""))
+                red_apoyo = st.radio(
+                    L("Red de apoyo", "Support network"), ["Sí", "No"], horizontal=True,
+                    index=0 if editing_profile.get("red_apoyo", "Sí") == "Sí" else 1, format_func=td,
+                )
+                guardar = st.form_submit_button(L("Guardar ficha", "Save record"))
+            if guardar:
+                try:
+                    store.save_profile(principal,nombre_paciente,{
+                        "edad":edad,"genero":genero,"antecedentes":antecedentes,"motivo":motivo_n,
+                        "sintomas":sintomas_n,"tratamiento":tratamiento,"red_apoyo":red_apoyo},
+                        expected_version=editing_profile['_version'])
+                except (ValueError,PermissionError):
+                    st.error(L('No se pudo guardar: revisa los datos y recarga la ficha.', 'Could not save: check the data and reload the record.'))
+                else:
+                    st.session_state.pop(snapshot_key, None)
+                    st.success(L('Ficha actualizada.','Record updated.'))
+                    st.rerun()
 
 
 # --- Triaje (equipo) ------------------------------------------------------
@@ -958,7 +953,7 @@ if perfil_demo != "Paciente":
         t3.metric(L("Urgencias nivel B", "Level B urgent cases"), sum(1 for a in alertas if a[5] == "B"))
         t4.metric(L("Casos pendientes", "Pending cases"), sum(1 for a in alertas if a[8] == "Pendiente"))
         niveles_sel = st.multiselect(
-            L("Filtrar por nivel", "Filter by level"), list(NIVELES), default=list(NIVELES),
+            L("Filtrar por nivel", "Filter by level"), list(NIVELES)+["Sin evaluar"], default=list(NIVELES)+["Sin evaluar"],
             format_func=etiqueta_nivel,
         )
         visibles = [a for a in alertas if a[5] in niveles_sel]
@@ -973,32 +968,34 @@ if perfil_demo != "Paciente":
     with tab_enfermeria:
         st.subheader(L("Bandeja de enfermería", "Nursing inbox"))
         st.caption(L(
-            "Los casos recibidos por WhatsApp o por el simulador se revisan aquí antes de su derivación.",
-            "Cases received through WhatsApp or the simulator are reviewed here before referral.",
+            "Las solicitudes registradas se consultan aquí; usa Triaje para tomarlas y revisarlas.",
+            "Recorded requests appear here; use Triage to take and review them.",
         ))
-        urgencias = {"alta": ("Alta", "High"), "media": ("Media", "Medium"), "baja": ("Baja", "Low")}
-        for caso in st.session_state.demo_cases:
-            nivel = URGENCIA_A_NIVEL.get(caso["urgencia"], "D")
-            u_es, u_en = urgencias.get(caso["urgencia"], (caso["urgencia"], caso["urgencia"]))
-            c1, c2 = st.columns([5, 1], vertical_alignment="center")
-            with c1:
-                card(
-                    f"<h4>{caso['nombre']}</h4>"
-                    f"<div class='meta'>{caso['canal']} · {caso['telefono']} · {caso['id']}</div>"
-                    f"<p style='margin:8px 0 4px'>{td(caso['resumen'])}</p>"
-                    f"<div class='meta'>{td(caso['detalle'])}</div>"
-                    f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
-                    f"{badge_nivel(nivel)}"
-                    f"<span class='ml-badge ml-silent'>{L('Urgencia', 'Urgency')}: {L(u_es, u_en)}</span>"
-                    f"<span class='ml-badge ml-silent'>{estado_txt(caso['estado'])}</span></div>",
-                    nivel,
-                )
-            with c2:
-                if caso["estado"] != "Revisado":
-                    if st.button(L("Marcar como revisado", "Mark as reviewed"),
-                                 key=f"rev_{caso['id']}", width="stretch"):
-                        caso["estado"] = "Revisado"
-                        st.rerun()
+        if DEMO:
+            st.caption(L('Ejemplos independientes: no existe integración con WhatsApp.', 'Separate examples: WhatsApp integration is not implemented.'))
+            urgencias = {"alta": ("Alta", "High"), "media": ("Media", "Medium"), "baja": ("Baja", "Low")}
+            for caso in st.session_state.demo_cases:
+                nivel = URGENCIA_A_NIVEL.get(caso["urgencia"], "D")
+                u_es, u_en = urgencias.get(caso["urgencia"], (caso["urgencia"], caso["urgencia"]))
+                c1, c2 = st.columns([5, 1], vertical_alignment="center")
+                with c1:
+                    card(
+                        f"<h4>{caso['nombre']}</h4>"
+                        f"<div class='meta'>{caso['canal']} · {caso['telefono']} · {caso['id']}</div>"
+                        f"<p style='margin:8px 0 4px'>{td(caso['resumen'])}</p>"
+                        f"<div class='meta'>{td(caso['detalle'])}</div>"
+                        f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+                        f"{badge_nivel(nivel)}"
+                        f"<span class='ml-badge ml-silent'>{L('Urgencia', 'Urgency')}: {L(u_es, u_en)}</span>"
+                        f"<span class='ml-badge ml-silent'>{estado_txt(caso['estado'])}</span></div>",
+                        nivel,
+                    )
+                with c2:
+                    if caso["estado"] != "Revisado":
+                        if st.button(L("Marcar como revisado", "Mark as reviewed"),
+                                     key=f"rev_{caso['id']}", width="stretch"):
+                            caso["estado"] = "Revisado"
+                            st.rerun()
         st.subheader(L("Casos registrados en MindeLine", "Cases recorded in MindeLine"))
         if not alertas:
             st.info(L("Aún no hay casos registrados desde el simulador.",
@@ -1095,12 +1092,12 @@ if perfil_demo != "Paciente":
         else:
             df = pd.DataFrame(historial, columns=[
                 "id", "nombre", "fecha", "tipo", "transcripcion", "nivel", "resumen", "phq9", "estado"])
-            conteo = df.groupby("nivel").size().reindex(list(NIVELES), fill_value=0).reset_index()
+            conteo = df.groupby("nivel").size().reindex(list(NIVELES)+["Sin evaluar"], fill_value=0).reset_index()
             conteo.columns = ["nivel", "cantidad"]
             conteo["etiqueta"] = conteo["nivel"].map(etiqueta_nivel)
             fig = px.bar(
                 conteo, x="etiqueta", y="cantidad", color="nivel",
-                color_discrete_map={k: v[3] for k, v in NIVELES.items()},
+                color_discrete_map={**{k: v[3] for k, v in NIVELES.items()}, "Sin evaluar": "#8C95A5"},
                 labels={"etiqueta": L("Nivel", "Level"), "cantidad": L("Cantidad", "Count")},
                 title=L(f"Alertas por nivel · {elegido}", f"Alerts by level · {elegido}"),
             )
@@ -1142,13 +1139,13 @@ with tab_support:
             )
             guardar_animo = st.form_submit_button(L("Guardar cómo me siento", "Save my check-in"))
         if guardar_animo:
-            st.session_state["patient_mood_checkin"] = animo
-        if "patient_mood_checkin" in st.session_state:
+            store.save_mood(principal, nombre_paciente, animo)
+        if store.mood(principal, nombre_paciente):
             st.success(L(
-                f"Gracias por compartirlo: {st.session_state['patient_mood_checkin']}. "
-                "Queda solo en esta sesión de demostración y no se envía al equipo de salud.",
-                f"Thanks for sharing: {st.session_state['patient_mood_checkin']}. "
-                "This stays in this demo session and is not sent to the care team.",
+                f"Gracias por compartirlo: {store.mood(principal, nombre_paciente)}. "
+                "Se guarda temporalmente para este perfil; no genera una alerta.",
+                f"Thanks for sharing: {store.mood(principal, nombre_paciente)}. "
+                "Stored temporarily for this profile; it does not create an alert.",
             ))
     else:
         st.subheader(L(f"Recursos de apoyo · {nombre_paciente}", f"Support resources · {nombre_paciente}"))
@@ -1192,7 +1189,7 @@ with tab_support:
         ))
     st.caption(L(
         "Estas ideas generales no reemplazan la atención profesional. No cambies medicamentos sin hablar con quien los indicó. "
-        "Si hay peligro inmediato, contacta los servicios de emergencia locales (en Chile: SAMU 131 o Salud Responde *4141) o al equipo de salud.",
+        "Si hay peligro inmediato, contacta los servicios de emergencia locales o al equipo de salud.",
         "These general ideas do not replace professional care. Do not change medication without talking to the prescriber. "
-        "For immediate danger, contact local emergency services (in Chile: SAMU 131 or Salud Responde *4141) or the care team.",
+        "For immediate danger, contact local emergency services or the care team.",
     ))
