@@ -95,6 +95,12 @@ Requiere Streamlit 1.50 o superior (tema de la barra lateral, `st.logo`, íconos
 - `backend_ai.py`: envío de texto/audio a Groq para generar transcripción y clasificación orientativa.
 - `requirements.txt`: dependencias de Python.
 
-## Pendiente antes de cualquier uso real
+## Hoja de ruta antes de un piloto
 
-Implementar autenticación, permisos por rol en el servidor, almacenamiento seguro, protección de datos, auditoría, manejo seguro de secretos y revisión clínica/legal. El perfil de administrador y la autenticación paciente/médico no están disponibles en este prototipo.
+La evolución hacia un posible piloto debe hacerse por etapas y con validaciones explícitas:
+
+1. **Pruebas y seguridad clínica:** crear pruebas automáticas, validar los flujos de riesgo y escalamiento, y revisar los criterios y mensajes con profesionales de salud mental. La clasificación de IA debe ser orientativa y no sustituir la evaluación profesional.
+2. **Autenticación y privacidad:** implementar autenticación real y permisos por rol aplicados en el servidor; definir consentimiento, protección, almacenamiento, retención y eliminación de datos; y revisar el manejo de secretos y los servicios externos que procesan información.
+3. **Evaluación de un piloto controlado:** considerar un piloto solo después de completar y revisar las etapas anteriores, con alcance, responsables, supervisión clínica y protocolos de incidentes definidos.
+
+Hasta completar estas etapas, MindeLine debe mantenerse como un **prototipo de demostración con datos ficticios**. No debe utilizarse para atender pacientes reales ni para tomar decisiones clínicas. El perfil de administrador y la autenticación paciente/médico no están disponibles en esta versión.
