@@ -3,3 +3,8 @@ pandas
 plotly
 groq
 python-dotenv
+fastapi
+uvicorn
+twilio
+python-multipart
+requests
